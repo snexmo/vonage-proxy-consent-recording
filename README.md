@@ -6,14 +6,14 @@ A Node.js/Express application that orchestrates two-party phone calls between he
 
 ```
 ┌──────────┐       ┌─────────────────┐       ┌──────────────────┐
-│ Operator │──────▶│  Express Server  │◀─────▶│  Vonage Voice API │
-│   (CLI)  │       │  (this app)      │       │                  │
+│ Operator │──────▶│ Express Server  │◀─────▶│ Vonage Voice API │
+│   (CLI)  │       │ (this app)      │       │                  │
 └──────────┘       └─────────────────┘       └──────────────────┘
                           │                         │
                           │ webhooks                │ calls
                           ▼                         ▼
                    ┌─────────────┐          ┌─────────────┐
-                   │   HCP Phone  │          │Patient Phone│
+                   │  HCP Phone  │          │Patient Phone│
                    └─────────────┘          └─────────────┘
 ```
 
