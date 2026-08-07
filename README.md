@@ -24,7 +24,7 @@ A Node.js/Express application that orchestrates two-party phone calls between he
 3. **HCP answers** — hears a hold message while the patient is dialed
 4. **Leg 2 (Patient)** — Vonage dials the patient as part of the NCCO `connect` action
 5. **Patient answers** — Vonage fetches `/ncco/patient` webhook for the consent prompt
-6. **Consent prompt** — Patient hears a French TTS message and presses 1 (accept) or 2 (refuse)
+6. **Consent prompt** — Patient hears a TTS message requesting recording consent and presses 1 (accept) or 2 (refuse)
 7. **If consent granted** — Server triggers recording via the Vonage Conversations Recording API (`PUT /v1/conversations/{uuid}/record`)
 8. **Parties bridged** — HCP and patient are connected
 9. **Call ends** — Recording file is downloaded and saved locally
