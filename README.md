@@ -26,7 +26,7 @@ A Node.js/Express reference application demonstrating two-party phone calls betw
 │   (CLI)  │       │ (this app)      │       │                  │
 └──────────┘       └─────────────────┘       └──────────────────┘
                           │                         │
-                          │ webhooks                │ calls
+                          │ calls.                  │ calls
                           ▼                         ▼
                    ┌─────────────┐          ┌─────────────┐
                    │  HCP Phone  │          │Patient Phone│
