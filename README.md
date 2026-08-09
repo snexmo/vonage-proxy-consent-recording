@@ -7,16 +7,16 @@ A Node.js/Express reference application demonstrating two-party phone calls betw
 - **Conditional recording via REST API** — Recording starts only after explicit patient consent, using `PUT /v1/conversations/{uuid}/record`
 - **TTS voice tier selection** — Standard, Premium, or Premier (Google Chirp3 HD) voices
 - **Post-call transcription** — Vonage built-in transcription (Deepgram and AWS planned for future platform release)
-- **Advanced Machine Detection + Call Screener** — Handles iOS 18+ Siri call screening with automated pass-through messaging
+- **Advanced Machine Detection + Call Screener** — Detects answer machine, and *beta feature Handles iOS 18+ Siri call screening with automated pass-through messaging
 
 ### Feature Status
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Premier TTS (Chirp3 HD) | ✓ Available | Google Chirp3 HD voices |
+| Premium + Premier TTS (Chirp3 HD) | ✓ Available | Premider Google HD voices |
 | Post-call transcription (Vonage) | ✓ Available | Built-in Vonage transcription engine |
 | Post-call transcription (Deepgram/AWS) | ✗ Pending | Requires platform support on Conversations API record endpoint |
-| AMD + Call Screener | ✓ Available | Can be further enhanced (e.g. separate AMD/screener toggles, configurable beepTimeout) |
+| AMD + Call Screener | ✓ Available | Can be further enhanced (e.g. new workflow when machine detected, configurable beepTimeout) |
 
 ## Architecture
 
