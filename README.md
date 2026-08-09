@@ -15,8 +15,8 @@ A Node.js/Express reference application demonstrating two-party phone calls betw
 |---------|--------|-------|
 | Premier TTS (Chirp3 HD) | ✓ Available | Google Chirp3 HD voices |
 | Post-call transcription (Vonage) | ✓ Available | Built-in Vonage transcription engine |
-| Post-call transcription (Deepgram/AWS) | ✗ Pending | Requires platform support on Conversations API record endpoint |
-| AMD + Call Screener | ✓ Available | Can be further enhanced (e.g. separate AMD/screener toggles, configurable beepTimeout) |
+| Post-call transcription (Deepgram/AWS) | ✗ Pending | Vonage Roadmap Item |
+| AMD + Call Screener | ✓ Available | Can be further enhanced (e.g. Modified workflow if machine detected, configurable beepTimeout) |
 
 ## Architecture
 
@@ -26,7 +26,7 @@ A Node.js/Express reference application demonstrating two-party phone calls betw
 │   (CLI)  │       │ (this app)      │       │                  │
 └──────────┘       └─────────────────┘       └──────────────────┘
                           │                         │
-                          │ webhooks                │ calls
+                          │ calls                   │ calls
                           ▼                         ▼
                    ┌─────────────┐          ┌─────────────┐
                    │  HCP Phone  │          │Patient Phone│
