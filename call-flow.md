@@ -17,13 +17,16 @@ sequenceDiagram
     Server->>Operator: Prompt "TTS voice tier"
     Operator->>Server: 3 (Premier/Chirp3 HD)
     Server->>Operator: Prompt "Transcription provider"
-    Operator->>Server: 3 (Deepgram)
+    Note over Operator,Server: 5 options: None, Vonage,<br/>Deepgram Standard, Deepgram Medical, AWS (pending)
+    Operator->>Server: 3 (Deepgram Standard)
     Server->>Operator: Prompt "AMD + Call Screener?"
     Operator->>Server: Y (default)
 
-    Note over Server,Vonage: Call Initiation (inline NCCO)
+    Note over Server,Vonage: Call Initiation (inline NCCO: talk + connect only)
     Server->>Server: storeCallOptions(premier, deepgram, amd=true)
     Server->>Vonage: POST /v1/calls (JWT auth)<br/>NCCO: [talk (Premier), connect + AMD]<br/>to: HCP, from: LVN_A
+    Vonage-->>Server: {uuid, conversation_uuid}
+    Server->>Server: storeHcpConversationUuid(uuid, conversation_uuid)
     Vonage->>HCP: Ring (caller ID: LVN_A)
 
     Note over HCP,Vonage: HCP Answers
@@ -51,24 +54,24 @@ sequenceDiagram
 
     alt Patient presses 1 (Consent Granted)
         Patient->>Vonage: DTMF "1"
-        Vonage->>Server: POST /consent {dtmf.digits: "1"}
-        Server->>Server: conversationName = hcpCallUuid
-        Server->>Server: buildTranscriptionConfig("deepgram", eventUrl, "fr-FR")
-        Server->>Vonage: NCCO: [talk "Merci...",<br/>conversation{name, record:true, transcription}]
+        Vonage->>Server: POST /consent {dtmf.digits: "1", conversation_uuid}
+        Server->>Server: getHcpConversationUuid(), getHcpCallUuid()
+        Server->>Server: buildTranscriptionConfigRest("deepgram", eventUrl, "fr-FR")
+        Server->>Vonage: PUT /v1/conversations/{conv_uuid}/record<br/>{action: "start", split: "conversation", channels: 2,<br/>event_url, format: "mp3", transcription: {...}}
+        Vonage-->>Server: 200 OK (recording started)
+        Server->>Vonage: NCCO: [talk "Merci. Vous allez être mis en relation..."]
         Vonage->>Patient: TTS "Merci. Vous allez être mis en relation..."
-        Note over Patient: Patient joins named conversation<br/>(recording + Deepgram transcription active)
 
-        Server->>Vonage: PUT /v1/calls/{hcpUuid}<br/>transfer → [conversation{name}]
-        Note over HCP: HCP transferred to same<br/>named conversation
+        Note over HCP,Patient: Patient auto-bridges back into HCP's<br/>original connect-based conversation<br/>(NCCO ends → patient returns to connect leg)
 
-        Note over HCP,Patient: Both in recorded named conversation<br/>Recording captures full interaction
+        Note over HCP,Patient: Recording active (stereo, both legs)
     else Patient presses 2 / Timeout / Other (Consent Refused)
         Patient->>Vonage: DTMF "2" or timeout
         Vonage->>Server: POST /consent {dtmf.digits: "2" or timed_out: true}
         Server->>Server: Log: consent REFUSED
         Server->>Vonage: NCCO: [talk "Entendu..."]
         Vonage->>Patient: TTS "Entendu. Cet appel ne sera pas enregistré..."
-        Note over HCP,Patient: Patient auto-bridges to HCP<br/>No recording, no transfer
+        Note over HCP,Patient: Patient auto-bridges back into HCP's<br/>connect-based conversation<br/>No recording, no API calls made
     end
 
     Note over HCP,Patient: Call in progress
@@ -87,8 +90,10 @@ sequenceDiagram
     end
 
     opt Transcription was configured
-        Note over Vonage,Server: Vonage routes recording to Deepgram
-        Vonage->>Server: POST /transcriptions<br/>{status: "transcribed", transcription_url, provider: "deepgram"}
-        Server->>Server: Log transcription_url<br/>(fetch raw Deepgram JSON with JWT)
+        Note over Vonage,Server: Vonage routes recording to provider<br/>(Deepgram Standard / Medical / Vonage / AWS)
+        Vonage->>Server: POST /transcriptions<br/>{status: "transcribed", transcription_url}
+        Server->>Server: Generate JWT
+        Server->>Vonage: GET transcription_url (JWT auth)
+        Server->>Server: Save transcription JSON
     end
 ```

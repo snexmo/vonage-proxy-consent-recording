@@ -10,24 +10,25 @@ jest.mock('../config', () => ({
   TRANSCRIPTION_LANGUAGE: 'fr-FR',
 }));
 
-// Mock vonage service
+// Mock vonage service — startRecording
 jest.mock('../services/vonage', () => ({
-  transferCall: jest.fn().mockResolvedValue({}),
+  startRecording: jest.fn().mockResolvedValue({}),
 }));
 
 // Mock callState service
 jest.mock('../services/callState', () => ({
   getHcpCallUuid: jest.fn().mockReturnValue('hcp-call-uuid-fixed'),
+  getHcpConversationUuid: jest.fn().mockReturnValue('CON-fixed-uuid'),
   getCallOptions: jest.fn().mockReturnValue({
     voiceTier: 'standard',
-    transcriptionProvider: 'deepgram',
+    transcriptionProvider: 'none',
     amdEnabled: true,
   }),
 }));
 
 const consentRouter = require('./consent');
-const { transferCall } = require('../services/vonage');
-const { getHcpCallUuid } = require('../services/callState');
+const { startRecording } = require('../services/vonage');
+const { getHcpConversationUuid } = require('../services/callState');
 
 function createApp() {
   const app = express();
@@ -37,49 +38,38 @@ function createApp() {
 }
 
 /**
- * Property: The conversation name in the patient NCCO matches the one
- * used in the transferCall for the HCP leg.
+ * Property: For digit "1", startRecording is always called with the HCP conversation UUID.
  *
- * The conversation name is now the HCP call UUID — both the patient
- * conversation action and the HCP transfer NCCO must use the same value.
+ * The consent handler retrieves the HCP conversation UUID from callState and passes it
+ * to startRecording. This property verifies the UUID is always forwarded correctly.
  */
-describe('Property: Conversation name consistency between patient NCCO and HCP transfer', () => {
+describe('Property: startRecording is always called with the HCP conversation UUID', () => {
   let app;
 
   beforeEach(() => {
     app = createApp();
     jest.clearAllMocks();
-    transferCall.mockResolvedValue({});
+    startRecording.mockResolvedValue({});
   });
 
-  test('patient conversation name matches HCP transfer conversation name (both use hcpCallUuid)', async () => {
+  test('digit "1" always calls startRecording with the HCP conversation UUID', async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.uuid(),
         async (uuid) => {
           jest.clearAllMocks();
-          getHcpCallUuid.mockReturnValue(uuid);
-          transferCall.mockResolvedValue({});
+          getHcpConversationUuid.mockReturnValue(uuid);
+          startRecording.mockResolvedValue({});
 
-          const res = await request(app)
+          await request(app)
             .post('/consent')
             .send({
               dtmf: { digits: '1', timed_out: false },
-              conversation_uuid: `conv-test`,
+              conversation_uuid: 'conv-test',
             });
 
-          // Wait for fire-and-forget
-          await new Promise(resolve => setImmediate(resolve));
-
-          // Patient NCCO conversation name should be the HCP call UUID
-          const patientConvName = res.body[1].name;
-          expect(patientConvName).toBe(uuid);
-
-          // Transfer NCCO should use the same name
-          expect(transferCall).toHaveBeenCalledTimes(1);
-          const [callUuid, transferNcco] = transferCall.mock.calls[0];
-          expect(callUuid).toBe(uuid);
-          expect(transferNcco[0].name).toBe(uuid);
+          expect(startRecording).toHaveBeenCalledTimes(1);
+          expect(startRecording.mock.calls[0][0]).toBe(uuid);
         }
       ),
       { numRuns: 20 }

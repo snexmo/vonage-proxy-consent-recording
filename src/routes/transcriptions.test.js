@@ -3,7 +3,7 @@
 const express = require('express');
 const request = require('supertest');
 
-const transcriptionsRouter = require('./transcriptions');
+const { router: transcriptionsRouter } = require('./transcriptions');
 
 function createApp() {
   const app = express();

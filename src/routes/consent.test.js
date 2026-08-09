@@ -9,14 +9,15 @@ jest.mock('../config', () => ({
   TRANSCRIPTION_LANGUAGE: 'fr-FR',
 }));
 
-// Mock vonage service
+// Mock vonage service — startRecording (NOT transferCall)
 jest.mock('../services/vonage', () => ({
-  transferCall: jest.fn().mockResolvedValue({}),
+  startRecording: jest.fn().mockResolvedValue({}),
 }));
 
 // Mock callState service
 jest.mock('../services/callState', () => ({
   getHcpCallUuid: jest.fn().mockReturnValue('hcp-call-uuid-123'),
+  getHcpConversationUuid: jest.fn().mockReturnValue('CON-abc123'),
   getCallOptions: jest.fn().mockReturnValue({
     voiceTier: 'standard',
     transcriptionProvider: 'none',
@@ -25,8 +26,8 @@ jest.mock('../services/callState', () => ({
 }));
 
 const consentRouter = require('./consent');
-const { transferCall } = require('../services/vonage');
-const { getHcpCallUuid, getCallOptions } = require('../services/callState');
+const { startRecording } = require('../services/vonage');
+const { getHcpCallUuid, getHcpConversationUuid, getCallOptions } = require('../services/callState');
 
 function createApp() {
   const app = express();
@@ -42,132 +43,40 @@ describe('POST /consent', () => {
     app = createApp();
     jest.clearAllMocks();
     getHcpCallUuid.mockReturnValue('hcp-call-uuid-123');
+    getHcpConversationUuid.mockReturnValue('CON-abc123');
     getCallOptions.mockReturnValue({
       voiceTier: 'standard',
       transcriptionProvider: 'none',
       amdEnabled: true,
     });
-    transferCall.mockResolvedValue({});
+    startRecording.mockResolvedValue({});
   });
 
   describe('Consent granted (digit "1")', () => {
-    test('returns NCCO with talk + conversation actions', async () => {
+    test('returns NCCO with a single talk action (no conversation action)', async () => {
       const res = await request(app)
         .post('/consent')
         .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
 
       expect(res.status).toBe(200);
-      expect(res.body).toHaveLength(2);
+      expect(res.body).toHaveLength(1);
       expect(res.body[0].action).toBe('talk');
-      expect(res.body[1].action).toBe('conversation');
     });
 
-    test('conversation action has record: true and correct name', async () => {
-      const res = await request(app)
-        .post('/consent')
-        .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
-
-      const conversationAction = res.body[1];
-      expect(conversationAction.name).toBe('hcp-call-uuid-123');
-      expect(conversationAction.record).toBe(true);
-      expect(conversationAction.startOnEnter).toBe(true);
-      expect(conversationAction.endOnExit).toBe(true);
-    });
-
-    test('conversation action has NO transcription when provider is "none"', async () => {
-      const res = await request(app)
-        .post('/consent')
-        .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
-
-      expect(res.body[1].transcription).toBeUndefined();
-    });
-
-    test('conversation action has Vonage transcription when provider is "vonage"', async () => {
-      getCallOptions.mockReturnValue({
-        voiceTier: 'standard',
-        transcriptionProvider: 'vonage',
-        amdEnabled: true,
-      });
-
-      const res = await request(app)
-        .post('/consent')
-        .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
-
-      const tx = res.body[1].transcription;
-      expect(tx).toBeDefined();
-      expect(tx.language).toBe('fr-FR');
-      expect(tx.eventUrl).toEqual(['https://example.ngrok.io/transcriptions']);
-      expect(tx.sentimentAnalysis).toBe(true);
-      // Vonage built-in should NOT have provider/providerOptions
-      expect(tx.provider).toBeUndefined();
-    });
-
-    test('conversation action has Deepgram transcription when provider is "deepgram"', async () => {
-      getCallOptions.mockReturnValue({
-        voiceTier: 'standard',
-        transcriptionProvider: 'deepgram',
-        amdEnabled: true,
-      });
-
-      const res = await request(app)
-        .post('/consent')
-        .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
-
-      const tx = res.body[1].transcription;
-      expect(tx.provider).toBe('deepgram');
-      expect(tx.providerOptions.model).toBe('nova-2-phonecall');
-      expect(tx.providerOptions.language).toBe('fr-FR');
-      expect(tx.eventUrl).toEqual(['https://example.ngrok.io/transcriptions']);
-    });
-
-    test('conversation action has AWS transcription when provider is "aws"', async () => {
-      getCallOptions.mockReturnValue({
-        voiceTier: 'standard',
-        transcriptionProvider: 'aws',
-        amdEnabled: true,
-      });
-
-      const res = await request(app)
-        .post('/consent')
-        .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
-
-      const tx = res.body[1].transcription;
-      expect(tx.provider).toBe('aws');
-      expect(tx.providerOptions.LanguageCode).toBe('fr-FR');
-      expect(tx.providerOptions.Settings.ChannelIdentification).toBe(true);
-    });
-
-    test('calls transferCall with HCP call UUID and matching conversation name', async () => {
+    test('calls startRecording with HCP conversation UUID and event URL', async () => {
       await request(app)
         .post('/consent')
         .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
 
-      // Wait for fire-and-forget
-      await new Promise(resolve => setImmediate(resolve));
-
-      expect(transferCall).toHaveBeenCalledWith('hcp-call-uuid-123', [
-        { action: 'conversation', name: 'hcp-call-uuid-123', startOnEnter: true, endOnExit: true },
-      ]);
-    });
-
-    test('skips transfer when no HCP call UUID available', async () => {
-      getHcpCallUuid.mockReturnValue(null);
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
-      const res = await request(app)
-        .post('/consent')
-        .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
-
-      expect(res.status).toBe(200);
-      expect(transferCall).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[CONSENT] No HCP call UUID available — cannot transfer HCP to recorded conversation'
+      expect(startRecording).toHaveBeenCalledWith(
+        'CON-abc123',
+        'https://example.ngrok.io/recordings',
+        null // transcriptionProvider is "none" → buildTranscriptionConfigRest returns null
       );
-      warnSpy.mockRestore();
     });
 
-    test('logs error when transferCall fails without blocking response', async () => {
-      transferCall.mockRejectedValue(new Error('Vonage API error (500): Internal Server Error'));
+    test('still returns talk NCCO when startRecording fails', async () => {
+      startRecording.mockRejectedValue(new Error('Vonage API error (500): Internal Server Error'));
       const errorSpy = jest.spyOn(console, 'error').mockImplementation();
 
       const res = await request(app)
@@ -175,10 +84,10 @@ describe('POST /consent', () => {
         .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
 
       expect(res.status).toBe(200);
-
-      await new Promise(resolve => setImmediate(resolve));
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].action).toBe('talk');
       expect(errorSpy).toHaveBeenCalledWith(
-        '[TRANSFER ERROR] Vonage API error (500): Internal Server Error'
+        '[CONSENT] Failed to start recording: Vonage API error (500): Internal Server Error'
       );
       errorSpy.mockRestore();
     });
@@ -202,7 +111,7 @@ describe('POST /consent', () => {
   });
 
   describe('Consent refused', () => {
-    test('DTMF "2" returns talk-only NCCO', async () => {
+    test('DTMF "2" returns talk-only NCCO, no startRecording called', async () => {
       const res = await request(app)
         .post('/consent')
         .send({ dtmf: { digits: '2', timed_out: false }, conversation_uuid: 'conv-456' });
@@ -211,9 +120,10 @@ describe('POST /consent', () => {
       expect(res.body).toHaveLength(1);
       expect(res.body[0].action).toBe('talk');
       expect(res.body[0].text).toContain('ne pas enregistrer');
+      expect(startRecording).not.toHaveBeenCalled();
     });
 
-    test('timeout returns talk-only NCCO', async () => {
+    test('timeout returns talk-only NCCO, no API calls', async () => {
       const res = await request(app)
         .post('/consent')
         .send({ dtmf: { digits: '', timed_out: true }, conversation_uuid: 'conv-789' });
@@ -221,9 +131,10 @@ describe('POST /consent', () => {
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
       expect(res.body[0].action).toBe('talk');
+      expect(startRecording).not.toHaveBeenCalled();
     });
 
-    test('any other digit returns talk-only NCCO', async () => {
+    test('unexpected digit returns talk-only NCCO, no API calls', async () => {
       const res = await request(app)
         .post('/consent')
         .send({ dtmf: { digits: '5', timed_out: false }, conversation_uuid: 'conv-000' });
@@ -231,24 +142,7 @@ describe('POST /consent', () => {
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
       expect(res.body[0].action).toBe('talk');
-    });
-
-    test('does not call transferCall on refusal', async () => {
-      await request(app)
-        .post('/consent')
-        .send({ dtmf: { digits: '2', timed_out: false }, conversation_uuid: 'conv-456' });
-
-      await new Promise(resolve => setImmediate(resolve));
-      expect(transferCall).not.toHaveBeenCalled();
-    });
-
-    test('refused NCCO does not contain conversation action', async () => {
-      const res = await request(app)
-        .post('/consent')
-        .send({ dtmf: { digits: '2', timed_out: false }, conversation_uuid: 'conv-456' });
-
-      const conversationActions = res.body.filter(a => a.action === 'conversation');
-      expect(conversationActions).toHaveLength(0);
+      expect(startRecording).not.toHaveBeenCalled();
     });
 
     test('uses selected voice tier for refusal message', async () => {

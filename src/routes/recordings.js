@@ -13,6 +13,8 @@ if (!fs.existsSync(recordingsDir)) {
 
 // POST /recordings — receive recording metadata and download the file
 router.post('/', (req, res) => {
+  console.log('[RECORDING] >>> Webhook hit! Raw body:', JSON.stringify(req.body));
+
   const { recording_url, recording_uuid, conversation_uuid, start_time, end_time, size, status } = req.body;
 
   console.log('[RECORDING] Metadata received:');

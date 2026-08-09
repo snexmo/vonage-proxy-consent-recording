@@ -2,6 +2,7 @@ node_modules
 .env
 *.mp3
 recordings/
+transcriptions/
 private_key_base64.txt
 *.pem
 .DS_Store

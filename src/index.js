@@ -13,7 +13,7 @@ const { buildAmdConfig } = require('./services/amd');
 const nccoRouter = require('./routes/ncco');
 const consentRouter = require('./routes/consent');
 const { router: recordingsRouter } = require('./routes/recordings');
-const transcriptionsRouter = require('./routes/transcriptions');
+const { router: transcriptionsRouter } = require('./routes/transcriptions');
 const eventsRouter = require('./routes/events');
 const amdRouter = require('./routes/amd');
 
@@ -144,15 +144,18 @@ function promptForCall() {
         console.log('\nPost-Call Transcription Provider:');
         console.log('  1) None (default)');
         console.log('  2) Vonage (built-in)');
-        console.log('  3) Deepgram (nova-2-phonecall) — ALPHA');
-        console.log('  4) AWS Transcribe — ALPHA');
+        console.log('  3) ✗ Deepgram Standard (nova-2-phonecall) — future platform release');
+        console.log('  4) ✗ Deepgram Medical (nova-3-medical) — future platform release');
+        console.log('  5) ✗ AWS Transcribe — future platform release');
         rl.question('Select transcription provider [1]: ', (txInput) => {
           txInput = txInput.trim();
           let transcriptionProvider;
           switch (txInput) {
             case '2': transcriptionProvider = 'vonage'; break;
-            case '3': transcriptionProvider = 'deepgram'; break;
-            case '4': transcriptionProvider = 'aws'; break;
+            // ─── Coming in a future release (requires NCCO-based recording path) ───
+            // case '3': transcriptionProvider = 'deepgram'; break;
+            // case '4': transcriptionProvider = 'deepgram-medical'; break;
+            // case '5': transcriptionProvider = 'aws'; break;
             default: transcriptionProvider = 'none'; break;
           }
 

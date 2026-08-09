@@ -1,8 +1,17 @@
 'use strict';
 
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const { generateJwt } = require('../services/vonage');
 
 const router = express.Router();
+
+// Ensure transcriptions/ directory exists
+const transcriptionsDir = path.join(__dirname, '..', '..', 'transcriptions');
+if (!fs.existsSync(transcriptionsDir)) {
+  fs.mkdirSync(transcriptionsDir, { recursive: true });
+}
 
 /**
  * POST /transcriptions — Receive transcription completion webhooks.
@@ -54,8 +63,17 @@ router.post('/', (req, res) => {
     console.log(`  provider: ${provider || 'vonage (built-in)'}`);
     console.log(`  type: ${type}`);
     console.log(`  transcription_url: ${transcription_url}`);
-    console.log('  → Fetch transcript using JWT-authenticated GET to transcription_url');
-  } else if (status === 'transcription_failed') {
+
+    // Acknowledge immediately, download asynchronously
+    res.status(200).end();
+
+    downloadTranscription(transcription_url, conversation_uuid, provider).catch((err) => {
+      console.error(`[TRANSCRIPTION] Download error: ${err.message}`);
+    });
+    return;
+  }
+
+  if (status === 'transcription_failed') {
     console.error('[TRANSCRIPTION] Failed:');
     console.error(`  conversation_uuid: ${conversation_uuid}`);
     console.error(`  recording_uuid: ${recording_uuid}`);
@@ -65,8 +83,59 @@ router.post('/', (req, res) => {
     console.log(`[TRANSCRIPTION] Received event with status: ${status}`, req.body);
   }
 
-  // Always acknowledge receipt
   res.status(200).end();
 });
 
-module.exports = router;
+/**
+ * Download a transcription from Vonage using JWT authentication.
+ * @param {string} transcriptionUrl - The URL to download the transcription from.
+ * @param {string} conversationUuid - The conversation UUID for the filename.
+ * @param {string} [provider] - The transcription provider (affects file extension).
+ */
+async function downloadTranscription(transcriptionUrl, conversationUuid, provider) {
+  const https = require('https');
+  const token = generateJwt();
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const providerSuffix = provider ? `_${provider}` : '_vonage';
+  const filename = `${timestamp}_${conversationUuid}${providerSuffix}.json`;
+  const filePath = path.join(transcriptionsDir, filename);
+
+  return new Promise((resolve, reject) => {
+    const url = new URL(transcriptionUrl);
+
+    const options = {
+      hostname: url.hostname,
+      path: url.pathname,
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    };
+
+    const req = https.request(options, (response) => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`Transcription download failed with status ${response.statusCode}`));
+        return;
+      }
+
+      let data = '';
+      response.on('data', (chunk) => { data += chunk; });
+      response.on('end', () => {
+        fs.writeFile(filePath, data, (err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          console.log(`[TRANSCRIPTION] Saved to: ${filePath}`);
+          resolve(filePath);
+        });
+      });
+    });
+
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+module.exports = { router, downloadTranscription };

@@ -10,14 +10,15 @@ jest.mock('../config', () => ({
   TRANSCRIPTION_LANGUAGE: 'fr-FR',
 }));
 
-// Mock vonage service — transferCall resolves immediately
+// Mock vonage service — startRecording (new architecture)
 jest.mock('../services/vonage', () => ({
-  transferCall: jest.fn().mockResolvedValue({}),
+  startRecording: jest.fn().mockResolvedValue({}),
 }));
 
 // Mock callState service
 jest.mock('../services/callState', () => ({
   getHcpCallUuid: jest.fn().mockReturnValue('hcp-call-uuid-fixed'),
+  getHcpConversationUuid: jest.fn().mockReturnValue('CON-fixed-uuid'),
   getCallOptions: jest.fn().mockReturnValue({
     voiceTier: 'standard',
     transcriptionProvider: 'none',
@@ -35,12 +36,12 @@ function createApp() {
 }
 
 /**
- * Property 1: Consent granted NCCO always contains a conversation action with record: true
+ * Property 1: Consent granted NCCO always contains ONLY talk actions
+ * (no conversation, no record).
  *
- * For DTMF digit "1", the returned NCCO SHALL contain exactly one action
- * with action: "conversation" and record: true.
+ * For DTMF digit "1", the returned NCCO SHALL contain only talk actions.
  */
-describe('Property: Consent granted always produces recorded conversation action', () => {
+describe('Property: Consent granted always produces talk-only NCCO', () => {
   let app;
 
   beforeEach(() => {
@@ -48,7 +49,7 @@ describe('Property: Consent granted always produces recorded conversation action
     jest.clearAllMocks();
   });
 
-  test('digit "1" always returns conversation action with record: true', async () => {
+  test('digit "1" always returns ONLY talk actions (no conversation, no record)', async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.string({ minLength: 1, maxLength: 20 }), // conversation_uuid
@@ -61,11 +62,18 @@ describe('Property: Consent granted always produces recorded conversation action
             });
 
           expect(res.status).toBe(200);
-          const convActions = res.body.filter(a => a.action === 'conversation');
-          expect(convActions).toHaveLength(1);
-          expect(convActions[0].record).toBe(true);
-          expect(convActions[0].startOnEnter).toBe(true);
-          expect(convActions[0].name).toBeDefined();
+          expect(Array.isArray(res.body)).toBe(true);
+          expect(res.body.length).toBeGreaterThan(0);
+
+          // All actions must be talk — no conversation or record
+          for (const action of res.body) {
+            expect(action.action).toBe('talk');
+          }
+
+          const conversationActions = res.body.filter(a => a.action === 'conversation');
+          const recordActions = res.body.filter(a => a.action === 'record');
+          expect(conversationActions).toHaveLength(0);
+          expect(recordActions).toHaveLength(0);
         }
       ),
       { numRuns: 30 }

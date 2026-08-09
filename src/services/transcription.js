@@ -8,7 +8,7 @@
  * `conversation` action alongside `record: true`.
  *
  * Supported providers:
- *   - "vonage" — Built-in Vonage transcription (language + sentimentAnalysis)
+ *   - "vonage" — Built-in Vonage transcription (language)
  *   - "deepgram" — Third-party: Deepgram Nova (provider + providerOptions)
  *   - "aws" — Third-party: AWS Transcribe (provider + providerOptions)
  *   - "none" — No transcription (returns null)
@@ -20,8 +20,7 @@
  * │ and `providerOptions` inside the `transcription` object. When these     │
  * │ are set:                                                                │
  * │                                                                         │
- * │   • The existing `transcription.language` and                           │
- * │     `transcription.sentimentAnalysis` parameters are IGNORED            │
+ * │   • The existing `transcription.language` parameter is IGNORED            │
  * │   • Vonage returns the RAW, UNMODIFIED provider JSON response at        │
  * │     `transcription_url` — no remapping is performed                     │
  * │   • A maximum 2-hour transcription limit applies                        │
@@ -39,7 +38,7 @@
 /**
  * Build the transcription configuration object for a given provider.
  *
- * @param {string} provider - One of: "vonage", "deepgram", "aws", "none".
+ * @param {string} provider - One of: "vonage", "none". ("deepgram", "aws" planned for future release.)
  * @param {string} eventUrl - Webhook URL to receive transcription completion events.
  * @param {string} [language="fr-FR"] - BCP-47 language code for the transcription.
  * @returns {object|null} A transcription config object, or null if provider is "none".
@@ -47,8 +46,7 @@
  * @example
  * // Vonage built-in
  * buildTranscriptionConfig('vonage', 'https://example.com/tx', 'fr-FR')
- * // => { language: 'fr-FR', eventUrl: ['https://...'], eventMethod: 'POST',
- * //      sentimentAnalysis: true }
+ * // => { language: 'fr-FR', eventUrl: ['https://...'], eventMethod: 'POST' }
  *
  * @example
  * // Deepgram (alpha)
@@ -62,68 +60,145 @@ function buildTranscriptionConfig(provider, eventUrl, language = 'fr-FR') {
   switch (normalizedProvider) {
     case 'vonage':
       // ─── Vonage Built-in Transcription ───────────────────────────────────
-      // Uses standard parameters: language and sentimentAnalysis.
-      // sentimentAnalysis is in Developer Preview — returns -1 to 1 per segment.
+      // Uses standard parameters: language.
       return {
         language,
         eventUrl: [eventUrl],
         eventMethod: 'POST',
-        sentimentAnalysis: true,
       };
 
-    case 'deepgram':
-      // ─── ALPHA: Deepgram Post-Call Transcription ─────────────────────────
-      // When `provider` is set, the `language` and `sentimentAnalysis`
-      // parameters on the transcription object are IGNORED by Vonage.
-      // The raw Deepgram JSON response is served at transcription_url.
-      //
-      // Recommended model: "nova-2-phonecall" for telephony audio
-      // Alternative: "nova-3" for latest generation
-      return {
-        eventUrl: [eventUrl],
-        eventMethod: 'POST',
-        provider: 'deepgram',
-        providerOptions: {
-          model: 'nova-2-phonecall',
-          language,
-          diarize: true,
-          diarize_model: 'latest',
-          punctuate: true,
-          smart_format: true,
-          utterances: true,
-        },
-      };
-
-    case 'aws':
-      // ─── ALPHA: AWS Transcribe Post-Call Transcription ───────────────────
-      // When `provider` is set, the `language` and `sentimentAnalysis`
-      // parameters on the transcription object are IGNORED by Vonage.
-      // The raw AWS Transcribe JSON response is served at transcription_url.
-      //
-      // ChannelIdentification: true maps channels to agent/customer roles
-      // when used with `split: "conversation"`.
-      // Sentiment analysis (positive/negative/neutral/mixed) is always
-      // returned by AWS — no extra flag needed.
-      return {
-        eventUrl: [eventUrl],
-        eventMethod: 'POST',
-        provider: 'aws',
-        providerOptions: {
-          LanguageCode: language,
-          Settings: {
-            ChannelIdentification: true,
-          },
-        },
-      };
+    // ─── Coming in a future release ─────────────────────────────────────────
+    // The Conversations API REST endpoint (PUT /v1/conversations/{uuid}/record)
+    // does not yet support third-party transcription providers. These will be
+    // enabled once the NCCO-based recording path or REST API support is added.
+    //
+    // case 'deepgram':
+    //   // ─── ALPHA: Deepgram Post-Call Transcription ─────────────────────────
+    //   return {
+    //     eventUrl: [eventUrl],
+    //     eventMethod: 'POST',
+    //     provider: 'deepgram',
+    //     providerOptions: {
+    //       model: 'nova-2-phonecall',
+    //       language,
+    //       diarize: true,
+    //       diarize_model: 'latest',
+    //       punctuate: true,
+    //       smart_format: true,
+    //       utterances: true,
+    //     },
+    //   };
+    //
+    // case 'aws':
+    //   // ─── ALPHA: AWS Transcribe Post-Call Transcription ───────────────────
+    //   return {
+    //     eventUrl: [eventUrl],
+    //     eventMethod: 'POST',
+    //     provider: 'aws',
+    //     providerOptions: {
+    //       LanguageCode: language,
+    //       Settings: {
+    //         ChannelIdentification: true,
+    //       },
+    //     },
+    //   };
 
     case 'none':
       return null;
 
     default:
       throw new Error(
-        `Unknown transcription provider: "${provider}". Must be one of: vonage, deepgram, aws, none`
+        `Unknown transcription provider: "${provider}". Must be one of: vonage, none`
       );
   }
 }
 
-module.exports = { buildTranscriptionConfig };
+/**
+ * Build the transcription configuration object for the Conversations API
+ * REST endpoint. Uses snake_case field names (`event_url`, `event_method`,
+ * `provider_options`) as required by the REST API.
+ *
+ * @param {string} provider - One of: "vonage", "none". ("deepgram", "deepgram-medical", "aws" planned for future release.)
+ * @param {string} eventUrl - Webhook URL to receive transcription completion events.
+ * @param {string} [language="fr-FR"] - BCP-47 language code for the transcription.
+ * @returns {object|null} A transcription config object with snake_case keys, or null if provider is "none".
+ *
+ * @example
+ * // Vonage built-in (REST)
+ * buildTranscriptionConfigRest('vonage', 'https://example.com/tx', 'fr-FR')
+ * // => { language: 'fr-FR', event_url: ['https://...'], event_method: 'POST' }
+ *
+ * @example
+ * // Deepgram (REST)
+ * buildTranscriptionConfigRest('deepgram', 'https://example.com/tx', 'fr-FR')
+ * // => { event_url: ['https://...'], event_method: 'POST',
+ * //      provider: 'deepgram', provider_options: { model: 'nova-2-phonecall', ... } }
+ */
+function buildTranscriptionConfigRest(provider, eventUrl, language = 'fr-FR') {
+  const normalizedProvider = (provider || 'none').toLowerCase();
+
+  switch (normalizedProvider) {
+    case 'vonage':
+      return {
+        language,
+        event_url: [eventUrl],
+        event_method: 'POST',
+      };
+
+    // ─── Coming in a future release ─────────────────────────────────────────
+    // The Conversations API REST endpoint (PUT /v1/conversations/{uuid}/record)
+    // does not yet support third-party transcription providers. These will be
+    // enabled once the NCCO-based recording path or REST API support is added.
+    //
+    // case 'deepgram':
+    //   return {
+    //     event_url: [eventUrl],
+    //     event_method: 'POST',
+    //     provider: 'deepgram',
+    //     provider_options: {
+    //       model: 'nova-2-phonecall',
+    //       language,
+    //       diarize: true,
+    //       punctuate: true,
+    //       smart_format: true,
+    //     },
+    //   };
+    //
+    // case 'deepgram-medical':
+    //   return {
+    //     event_url: [eventUrl],
+    //     event_method: 'POST',
+    //     provider: 'deepgram',
+    //     provider_options: {
+    //       model: 'nova-3-medical',
+    //       language,
+    //       diarize: true,
+    //       punctuate: true,
+    //       smart_format: true,
+    //     },
+    //   };
+    //
+    // case 'aws':
+    //   return {
+    //     event_url: [eventUrl],
+    //     event_method: 'POST',
+    //     provider: 'aws',
+    //     provider_options: {
+    //       LanguageCode: language,
+    //       Settings: {
+    //         ChannelIdentification: true,
+    //       },
+    //     },
+    //   };
+
+    case 'none':
+      return null;
+
+    default:
+      throw new Error(
+        `Unknown transcription provider: "${provider}". Must be one of: vonage, none`
+      );
+  }
+}
+
+module.exports = { buildTranscriptionConfig, buildTranscriptionConfigRest };

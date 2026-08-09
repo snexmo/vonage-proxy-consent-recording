@@ -93,6 +93,12 @@ describe('buildHcpNcco', () => {
     });
   });
 
+  test('does not include a record action', () => {
+    const ncco = buildHcpNcco('+33612345678', 'standard', false);
+    const recordActions = ncco.filter(a => a.action === 'record');
+    expect(recordActions).toHaveLength(0);
+  });
+
   describe('AMD enabled', () => {
     test('connect includes advancedMachineDetection with callScreener', () => {
       const ncco = buildHcpNcco('+33612345678', 'standard', true);
