@@ -11,4 +11,8 @@ module.exports = {
   BASE_URL: process.env.BASE_URL,
   DEFAULT_HCP_NUMBER: process.env.DEFAULT_HCP_NUMBER || '',
   DEFAULT_PATIENT_NUMBER: process.env.DEFAULT_PATIENT_NUMBER || '',
+
+  // Transcription language (BCP-47 format). Used by all transcription providers.
+  // Defaults to French for the healthcare proxy use case.
+  TRANSCRIPTION_LANGUAGE: process.env.TRANSCRIPTION_LANGUAGE || 'fr-FR',
 };

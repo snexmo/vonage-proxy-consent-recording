@@ -87,20 +87,29 @@ function createCall(ncco, to, from, eventUrl) {
  *
  * @param {string} conversationUuid - The HCP conversation UUID to record.
  * @param {string} eventUrl - Webhook URL for recording completion events.
+ * @param {object|null} [transcriptionConfig=null] - Optional transcription config object.
+ *   If non-null, included as the `transcription` field in the request body.
+ *   If null/undefined, the `transcription` field is omitted entirely.
  * @returns {Promise<object>} Parsed JSON response from the API.
  * @throws {Error} If the API responds with a non-2xx status (includes status code and body).
  */
-function startRecording(conversationUuid, eventUrl) {
+function startRecording(conversationUuid, eventUrl, transcriptionConfig = null) {
   const token = generateJwt();
 
-  const body = JSON.stringify({
+  const requestBody = {
     action: 'start',
     split: 'conversation',
     channels: 2,
     event_url: [eventUrl],
     event_method: 'POST',
     format: 'mp3',
-  });
+  };
+
+  if (transcriptionConfig) {
+    requestBody.transcription = transcriptionConfig;
+  }
+
+  const body = JSON.stringify(requestBody);
 
   return new Promise((resolve, reject) => {
     const https = require('https');

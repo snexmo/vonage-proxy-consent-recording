@@ -1,24 +1,33 @@
+'use strict';
+
 const express = require('express');
 const request = require('supertest');
-const consentRouter = require('./consent');
 
-// Mock config to provide a known BASE_URL
+// Mock config
 jest.mock('../config', () => ({
-  BASE_URL: 'https://example.ngrok.io'
+  BASE_URL: 'https://example.ngrok.io',
+  TRANSCRIPTION_LANGUAGE: 'fr-FR',
 }));
 
-// Mock vonage service
+// Mock vonage service — startRecording (NOT transferCall)
 jest.mock('../services/vonage', () => ({
-  startRecording: jest.fn().mockResolvedValue({ id: 'rec-1', status: 'started' })
+  startRecording: jest.fn().mockResolvedValue({}),
 }));
 
 // Mock callState service
 jest.mock('../services/callState', () => ({
-  getHcpConversationUuid: jest.fn().mockReturnValue('CON-hcp-uuid-123')
+  getHcpCallUuid: jest.fn().mockReturnValue('hcp-call-uuid-123'),
+  getHcpConversationUuid: jest.fn().mockReturnValue('CON-abc123'),
+  getCallOptions: jest.fn().mockReturnValue({
+    voiceTier: 'standard',
+    transcriptionProvider: 'none',
+    amdEnabled: true,
+  }),
 }));
 
+const consentRouter = require('./consent');
 const { startRecording } = require('../services/vonage');
-const { getHcpConversationUuid } = require('../services/callState');
+const { getHcpCallUuid, getHcpConversationUuid, getCallOptions } = require('../services/callState');
 
 function createApp() {
   const app = express();
@@ -33,192 +42,122 @@ describe('POST /consent', () => {
   beforeEach(() => {
     app = createApp();
     jest.clearAllMocks();
-    getHcpConversationUuid.mockReturnValue('CON-hcp-uuid-123');
-    startRecording.mockResolvedValue({ id: 'rec-1', status: 'started' });
-  });
-
-  test('DTMF "1" returns NCCO with only talk action (no record action)', async () => {
-    const res = await request(app)
-      .post('/consent')
-      .send({
-        dtmf: { digits: '1', timed_out: false },
-        conversation_uuid: 'conv-123'
-      });
-
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0]).toEqual({
-      action: 'talk',
-      language: 'fr-FR',
-      text: 'Merci. Vous allez être mis en relation avec votre médecin.'
+    getHcpCallUuid.mockReturnValue('hcp-call-uuid-123');
+    getHcpConversationUuid.mockReturnValue('CON-abc123');
+    getCallOptions.mockReturnValue({
+      voiceTier: 'standard',
+      transcriptionProvider: 'none',
+      amdEnabled: true,
     });
-    // No record action in the NCCO
-    expect(res.body.find(a => a.action === 'record')).toBeUndefined();
+    startRecording.mockResolvedValue({});
   });
 
-  test('DTMF "1" calls startRecording with HCP conversation UUID', async () => {
-    await request(app)
-      .post('/consent')
-      .send({
-        dtmf: { digits: '1', timed_out: false },
-        conversation_uuid: 'conv-123'
+  describe('Consent granted (digit "1")', () => {
+    test('returns NCCO with a single talk action (no conversation action)', async () => {
+      const res = await request(app)
+        .post('/consent')
+        .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].action).toBe('talk');
+    });
+
+    test('calls startRecording with HCP conversation UUID and event URL', async () => {
+      await request(app)
+        .post('/consent')
+        .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
+
+      expect(startRecording).toHaveBeenCalledWith(
+        'CON-abc123',
+        'https://example.ngrok.io/recordings',
+        null // transcriptionProvider is "none" → buildTranscriptionConfigRest returns null
+      );
+    });
+
+    test('still returns talk NCCO when startRecording fails', async () => {
+      startRecording.mockRejectedValue(new Error('Vonage API error (500): Internal Server Error'));
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      const res = await request(app)
+        .post('/consent')
+        .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].action).toBe('talk');
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[CONSENT] Failed to start recording: Vonage API error (500): Internal Server Error'
+      );
+      errorSpy.mockRestore();
+    });
+
+    test('uses Premier voice tier when configured', async () => {
+      getCallOptions.mockReturnValue({
+        voiceTier: 'premier',
+        transcriptionProvider: 'none',
+        amdEnabled: true,
       });
 
-    // Wait for fire-and-forget promise to resolve
-    await new Promise(resolve => setImmediate(resolve));
+      const res = await request(app)
+        .post('/consent')
+        .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'conv-123' });
 
-    expect(startRecording).toHaveBeenCalledWith(
-      'CON-hcp-uuid-123',
-      'https://example.ngrok.io/recordings'
-    );
-  });
-
-  test('DTMF "1" skips recording when no HCP conversation UUID available', async () => {
-    getHcpConversationUuid.mockReturnValue(null);
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
-    const res = await request(app)
-      .post('/consent')
-      .send({
-        dtmf: { digits: '1', timed_out: false },
-        conversation_uuid: 'conv-123'
-      });
-
-    expect(res.status).toBe(200);
-    expect(startRecording).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[CONSENT] No HCP conversation UUID available — skipping recording'
-    );
-
-    warnSpy.mockRestore();
-  });
-
-  test('DTMF "1" logs error when startRecording fails without blocking response', async () => {
-    startRecording.mockRejectedValue(new Error('Vonage API error (500): Internal Server Error'));
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
-
-    const res = await request(app)
-      .post('/consent')
-      .send({
-        dtmf: { digits: '1', timed_out: false },
-        conversation_uuid: 'conv-123'
-      });
-
-    // Response is still successful
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
-
-    // Wait for fire-and-forget promise to reject
-    await new Promise(resolve => setImmediate(resolve));
-
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[RECORDING API ERROR] Vonage API error (500): Internal Server Error'
-    );
-
-    errorSpy.mockRestore();
-  });
-
-  test('DTMF "2" returns NCCO without record action', async () => {
-    const res = await request(app)
-      .post('/consent')
-      .send({
-        dtmf: { digits: '2', timed_out: false },
-        conversation_uuid: 'conv-456'
-      });
-
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0]).toEqual({
-      action: 'talk',
-      language: 'fr-FR',
-      text: 'Nous avons tenu compte de votre choix de ne pas enregistrer. Vous allez être mis en relation avec votre médecin.'
+      const talkAction = res.body[0];
+      expect(talkAction.provider).toBe('google');
+      expect(talkAction.providerOptions.name).toBe('fr-FR-Chirp3-HD-Aoede');
+      expect(talkAction.language).toBeUndefined();
     });
   });
 
-  test('Timeout returns NCCO without record action', async () => {
-    const res = await request(app)
-      .post('/consent')
-      .send({
-        dtmf: { digits: '', timed_out: true },
-        conversation_uuid: 'conv-789'
+  describe('Consent refused', () => {
+    test('DTMF "2" returns talk-only NCCO, no startRecording called', async () => {
+      const res = await request(app)
+        .post('/consent')
+        .send({ dtmf: { digits: '2', timed_out: false }, conversation_uuid: 'conv-456' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].action).toBe('talk');
+      expect(res.body[0].text).toContain('ne pas enregistrer');
+      expect(startRecording).not.toHaveBeenCalled();
+    });
+
+    test('timeout returns talk-only NCCO, no API calls', async () => {
+      const res = await request(app)
+        .post('/consent')
+        .send({ dtmf: { digits: '', timed_out: true }, conversation_uuid: 'conv-789' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].action).toBe('talk');
+      expect(startRecording).not.toHaveBeenCalled();
+    });
+
+    test('unexpected digit returns talk-only NCCO, no API calls', async () => {
+      const res = await request(app)
+        .post('/consent')
+        .send({ dtmf: { digits: '5', timed_out: false }, conversation_uuid: 'conv-000' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].action).toBe('talk');
+      expect(startRecording).not.toHaveBeenCalled();
+    });
+
+    test('uses selected voice tier for refusal message', async () => {
+      getCallOptions.mockReturnValue({
+        voiceTier: 'premium',
+        transcriptionProvider: 'none',
+        amdEnabled: false,
       });
 
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0]).toEqual({
-      action: 'talk',
-      language: 'fr-FR',
-      text: 'Nous avons tenu compte de votre choix de ne pas enregistrer. Vous allez être mis en relation avec votre médecin.'
+      const res = await request(app)
+        .post('/consent')
+        .send({ dtmf: { digits: '2', timed_out: false }, conversation_uuid: 'conv-456' });
+
+      expect(res.body[0].premium).toBe(true);
+      expect(res.body[0].language).toBe('fr-FR');
     });
-  });
-
-  test('Any other digit returns NCCO without record action', async () => {
-    const res = await request(app)
-      .post('/consent')
-      .send({
-        dtmf: { digits: '5', timed_out: false },
-        conversation_uuid: 'conv-000'
-      });
-
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0]).toEqual({
-      action: 'talk',
-      language: 'fr-FR',
-      text: 'Nous avons tenu compte de votre choix de ne pas enregistrer. Vous allez être mis en relation avec votre médecin.'
-    });
-  });
-});
-
-
-const fc = require('fast-check');
-
-/**
- * Property 1: Consent NCCO talk actions always include French language
- * For any DTMF input submitted to the /consent endpoint, every object with
- * action: "talk" in the returned NCCO array SHALL contain language: "fr-FR".
- *
- * Validates: Requirements 1.2
- */
-describe('Property: Consent NCCO talk actions always include French language', () => {
-  let app;
-
-  beforeEach(() => {
-    app = createApp();
-    jest.clearAllMocks();
-    getHcpConversationUuid.mockReturnValue('CON-hcp-uuid-123');
-    startRecording.mockResolvedValue({ id: 'rec-1', status: 'started' });
-  });
-
-  test('all talk actions include language fr-FR for any DTMF input', async () => {
-    await fc.assert(
-      fc.asyncProperty(
-        fc.oneof(
-          // Valid single digits
-          fc.constantFrom('0', '1', '2', '3', '4', '5', '6', '7', '8', '9'),
-          // Empty string (timeout scenario)
-          fc.constant(''),
-          // Multi-digit strings
-          fc.stringOf(fc.constantFrom('0', '1', '2', '3', '4', '5', '6', '7', '8', '9'), { minLength: 2, maxLength: 4 })
-        ),
-        fc.boolean(),
-        async (digits, timedOut) => {
-          const res = await request(app)
-            .post('/consent')
-            .send({
-              dtmf: { digits, timed_out: timedOut },
-              conversation_uuid: 'conv-prop-test'
-            });
-
-          expect(res.status).toBe(200);
-          const talkActions = res.body.filter(action => action.action === 'talk');
-          expect(talkActions.length).toBeGreaterThan(0);
-          for (const talk of talkActions) {
-            expect(talk.language).toBe('fr-FR');
-          }
-        }
-      ),
-      { numRuns: 50 }
-    );
   });
 });

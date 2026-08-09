@@ -48,7 +48,7 @@ jest.mock('../config', () => ({
 const https = require('https');
 const { startRecording } = require('./vonage');
 
-describe('Property 2: Recording request body is correctly constructed', () => {
+describe('Property 2: Recording request body is correctly constructed (no transcription)', () => {
   let capturedOptions;
   let capturedBody;
 
@@ -127,6 +127,82 @@ describe('Property 2: Recording request body is correctly constructed', () => {
         }
       ),
       { numRuns: 100 }
+    );
+  });
+});
+
+
+/**
+ * Property: When transcriptionConfig is provided (non-null), it appears as
+ * the `transcription` field in the request body. When null, the field is absent.
+ *
+ * **Validates: Requirements 2.2, 4.2**
+ */
+describe('Property: transcription field inclusion based on transcriptionConfig', () => {
+  let capturedBody;
+
+  beforeEach(() => {
+    capturedBody = null;
+
+    https.request.mockImplementation((options, callback) => {
+      const mockRes = {
+        statusCode: 200,
+        on: jest.fn((event, handler) => {
+          if (event === 'data') {
+            handler(JSON.stringify({ id: 'rec-456', status: 'started' }));
+          }
+          if (event === 'end') {
+            handler();
+          }
+        }),
+      };
+
+      process.nextTick(() => callback(mockRes));
+
+      const mockReq = {
+        on: jest.fn(),
+        write: jest.fn((body) => {
+          capturedBody = body;
+        }),
+        end: jest.fn(),
+      };
+      return mockReq;
+    });
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('includes transcription field in body when transcriptionConfig is non-null', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uuid(),
+        fc.webUrl(),
+        fc.constantFrom('fr-FR', 'en-US', 'de-DE'),
+        async (conversationUuid, eventUrl, language) => {
+          capturedBody = null;
+
+          const transcriptionConfig = {
+            language,
+            event_url: ['https://example.com/tx'],
+            event_method: 'POST',
+          };
+
+          await startRecording(conversationUuid, eventUrl, transcriptionConfig);
+
+          expect(capturedBody).not.toBeNull();
+          const parsedBody = JSON.parse(capturedBody);
+
+          // Verify transcription field is present and matches the config
+          expect(parsedBody.transcription).toEqual(transcriptionConfig);
+
+          // Verify all 7 expected keys are present
+          const expectedKeys = ['action', 'split', 'channels', 'event_url', 'event_method', 'format', 'transcription'];
+          expect(Object.keys(parsedBody).sort()).toEqual(expectedKeys.sort());
+        }
+      ),
+      { numRuns: 50 }
     );
   });
 });

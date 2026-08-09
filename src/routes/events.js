@@ -5,6 +5,11 @@ const router = express.Router();
 router.post('/', (req, res) => {
   const event = req.body;
 
+  // Check if this is a recording event that landed here instead of /recordings
+  if (event.recording_url) {
+    console.log('[EVENT] ⚠️  RECORDING EVENT received on /events (not /recordings):', JSON.stringify(event));
+  }
+
   if (event.status === 'unanswered' || event.status === 'failed') {
     console.warn('[EVENT WARNING]', event.status, event);
   } else {
