@@ -84,7 +84,7 @@ describe('buildHcpNcco', () => {
     const record = ncco[0];
     expect(record.transcription).toBeDefined();
     expect(record.transcription.provider).toBe('deepgram');
-    expect(record.transcription.providerOptions.model).toBe('nova-2-phonecall');
+    expect(record.transcription.providerOptions.model).toBe('nova-3');
   });
 
   test('record action includes transcription when provider is deepgram-medical', () => {

@@ -15,7 +15,7 @@ A Node.js/Express reference application demonstrating two-party phone calls betw
 |---------|--------|-------|
 | Premium + Premier TTS (Chirp3 HD) | Available | Google HD voices |
 | Post-call transcription (Vonage) | Available | Built-in Vonage transcription engine |
-| Post-call transcription (Deepgram Standard) | Available | nova-2-phonecall model |
+| Post-call transcription (Deepgram Standard) | Available | nova-3 model |
 | Post-call transcription (Deepgram Medical) | Available | nova-3-medical model |
 | Post-call transcription (AWS Transcribe) | Available | AWS transcription with channel identification |
 | AMD + Call Screener | Available | Default OFF; can be enabled per call |
@@ -115,7 +115,7 @@ Select TTS voice [1]:
 Post-Call Transcription Provider:
   1) None (default)
   2) Vonage (built-in)
-  3) Deepgram Standard (nova-2-phonecall)
+  3) Deepgram Standard (nova-3)
   4) Deepgram Medical (nova-3-medical)
   5) AWS Transcribe
 Select transcription provider [1]:

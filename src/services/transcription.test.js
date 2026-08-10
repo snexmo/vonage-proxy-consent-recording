@@ -37,7 +37,7 @@ describe('buildTranscriptionConfig', () => {
   //       eventMethod: 'POST',
   //       provider: 'deepgram',
   //       providerOptions: {
-  //         model: 'nova-2-phonecall',
+  //         model: 'nova-3',
   //         language: 'fr-FR',
   //         diarize: true,
   //         diarize_model: 'latest',
@@ -244,7 +244,7 @@ describe('buildTranscriptionConfigRest', () => {
   //     expect(result.event_url).toEqual([TEST_URL]);
   //     expect(result.event_method).toBe('POST');
   //     expect(result.provider).toBe('deepgram');
-  //     expect(result.provider_options.model).toBe('nova-2-phonecall');
+  //     expect(result.provider_options.model).toBe('nova-3');
   //   });
   //
   //   test('does NOT use camelCase keys', () => {
@@ -326,8 +326,8 @@ describe('buildTranscriptionConfigNcco', () => {
         eventMethod: 'POST',
         provider: 'deepgram',
         providerOptions: {
-          model: 'nova-2-phonecall',
-          language: 'fr-FR',
+          model: 'nova-3',
+          language: 'fr',
           diarize: true,
           punctuate: true,
           smart_format: true,
@@ -340,9 +340,9 @@ describe('buildTranscriptionConfigNcco', () => {
       expect(result.language).toBeUndefined();
     });
 
-    test('passes language into providerOptions', () => {
+    test('extracts primary subtag from BCP-47 language into providerOptions', () => {
       const result = buildTranscriptionConfigNcco('deepgram', TEST_URL, 'en-US');
-      expect(result.providerOptions.language).toBe('en-US');
+      expect(result.providerOptions.language).toBe('en');
     });
   });
 
@@ -355,7 +355,7 @@ describe('buildTranscriptionConfigNcco', () => {
         provider: 'deepgram',
         providerOptions: {
           model: 'nova-3-medical',
-          language: 'fr-FR',
+          language: 'fr',
           diarize: true,
           punctuate: true,
           smart_format: true,

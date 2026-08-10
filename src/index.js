@@ -142,7 +142,7 @@ function promptForCall() {
         console.log('\nPost-Call Transcription Provider:');
         console.log('  1) None (default)');
         console.log('  2) Vonage (built-in)');
-        console.log('  3) Deepgram Standard (nova-2-phonecall)');
+        console.log('  3) Deepgram Standard (nova-3)');
         console.log('  4) Deepgram Medical (nova-3-medical)');
         console.log('  5) AWS Transcribe');
         rl.question('Select transcription provider [1]: ', (txInput) => {

@@ -71,7 +71,7 @@ describe('Feature: simple-proxy-recording, Property 2: Transcription config prov
     );
   });
 
-  it('deepgram provider: provider is "deepgram", model is "nova-2-phonecall", has language/diarize/punctuate/smart_format in providerOptions', () => {
+  it('deepgram provider: provider is "deepgram", model is "nova-3", has language/diarize/punctuate/smart_format in providerOptions', () => {
     fc.assert(
       fc.property(
         bcp47LanguageArb,
@@ -87,8 +87,9 @@ describe('Feature: simple-proxy-recording, Property 2: Transcription config prov
           expect(config.eventMethod).toBe('POST');
           // providerOptions
           expect(config.providerOptions).toBeDefined();
-          expect(config.providerOptions.model).toBe('nova-2-phonecall');
-          expect(config.providerOptions.language).toBe(language);
+          expect(config.providerOptions.model).toBe('nova-3');
+          // Deepgram receives only the primary language subtag (before first hyphen)
+          expect(config.providerOptions.language).toBe(language.split('-')[0]);
           expect(config.providerOptions.diarize).toBe(true);
           expect(config.providerOptions.punctuate).toBe(true);
           expect(config.providerOptions.smart_format).toBe(true);
@@ -123,7 +124,8 @@ describe('Feature: simple-proxy-recording, Property 2: Transcription config prov
           // providerOptions
           expect(config.providerOptions).toBeDefined();
           expect(config.providerOptions.model).toBe('nova-3-medical');
-          expect(config.providerOptions.language).toBe(language);
+          // Deepgram receives only the primary language subtag (before first hyphen)
+          expect(config.providerOptions.language).toBe(language.split('-')[0]);
           expect(config.providerOptions.diarize).toBe(true);
           expect(config.providerOptions.punctuate).toBe(true);
           expect(config.providerOptions.smart_format).toBe(true);

@@ -52,7 +52,7 @@
  * // Deepgram (alpha)
  * buildTranscriptionConfig('deepgram', 'https://example.com/tx', 'fr-FR')
  * // => { eventUrl: ['https://...'], eventMethod: 'POST',
- * //      provider: 'deepgram', providerOptions: { model: 'nova-2-phonecall', ... } }
+ * //      provider: 'deepgram', providerOptions: { model: 'nova-3', ... } }
  */
 function buildTranscriptionConfig(provider, eventUrl, language = 'fr-FR') {
   const normalizedProvider = (provider || 'none').toLowerCase();
@@ -79,7 +79,7 @@ function buildTranscriptionConfig(provider, eventUrl, language = 'fr-FR') {
     //     eventMethod: 'POST',
     //     provider: 'deepgram',
     //     providerOptions: {
-    //       model: 'nova-2-phonecall',
+    //       model: 'nova-3',
     //       language,
     //       diarize: true,
     //       diarize_model: 'latest',
@@ -132,7 +132,7 @@ function buildTranscriptionConfig(provider, eventUrl, language = 'fr-FR') {
  * // Deepgram (REST)
  * buildTranscriptionConfigRest('deepgram', 'https://example.com/tx', 'fr-FR')
  * // => { event_url: ['https://...'], event_method: 'POST',
- * //      provider: 'deepgram', provider_options: { model: 'nova-2-phonecall', ... } }
+ * //      provider: 'deepgram', provider_options: { model: 'nova-3', ... } }
  */
 function buildTranscriptionConfigRest(provider, eventUrl, language = 'fr-FR') {
   const normalizedProvider = (provider || 'none').toLowerCase();
@@ -156,7 +156,7 @@ function buildTranscriptionConfigRest(provider, eventUrl, language = 'fr-FR') {
     //     event_method: 'POST',
     //     provider: 'deepgram',
     //     provider_options: {
-    //       model: 'nova-2-phonecall',
+    //       model: 'nova-3',
     //       language,
     //       diarize: true,
     //       punctuate: true,
@@ -223,13 +223,13 @@ function buildTranscriptionConfigRest(provider, eventUrl, language = 'fr-FR') {
  * // Deepgram (NCCO)
  * buildTranscriptionConfigNcco('deepgram', 'https://example.com/tx', 'fr-FR')
  * // => { eventUrl: ['https://...'], eventMethod: 'POST',
- * //      provider: 'deepgram', providerOptions: { model: 'nova-2-phonecall', ... } }
+ * //      provider: 'deepgram', providerOptions: { model: 'nova-3', language: 'fr', ... } }
  *
  * @example
  * // Deepgram Medical (NCCO)
  * buildTranscriptionConfigNcco('deepgram-medical', 'https://example.com/tx', 'fr-FR')
  * // => { eventUrl: ['https://...'], eventMethod: 'POST',
- * //      provider: 'deepgram', providerOptions: { model: 'nova-3-medical', ... } }
+ * //      provider: 'deepgram', providerOptions: { model: 'nova-3-medical', language: 'fr', ... } }
  *
  * @example
  * // AWS Transcribe (NCCO)
@@ -250,34 +250,28 @@ function buildTranscriptionConfigNcco(provider, eventUrl, language = 'fr-FR') {
       };
 
     case 'deepgram':
-      // ─── Deepgram Standard (Nova 2 Phonecall) ───────────────────────────
+    case 'deepgram-medical': {
+      // ─── Deepgram Standard / Medical ────────────────────────────────────
+      // Deepgram expects the primary language subtag only (e.g., "fr"),
+      // not the full BCP-47 tag (e.g., "fr-FR").
+      const deepgramLanguage = language.split('-')[0];
+      const model = normalizedProvider === 'deepgram-medical'
+        ? 'nova-3-medical'
+        : 'nova-3';
       return {
         eventUrl: [eventUrl],
         eventMethod: 'POST',
         provider: 'deepgram',
         providerOptions: {
-          model: 'nova-2-phonecall',
-          language,
+          model,
+          language: deepgramLanguage,
+//          language: language,
           diarize: true,
           punctuate: true,
           smart_format: true,
         },
       };
-
-    case 'deepgram-medical':
-      // ─── Deepgram Medical (Nova 3 Medical) ──────────────────────────────
-      return {
-        eventUrl: [eventUrl],
-        eventMethod: 'POST',
-        provider: 'deepgram',
-        providerOptions: {
-          model: 'nova-3-medical',
-          language,
-          diarize: true,
-          punctuate: true,
-          smart_format: true,
-        },
-      };
+    }
 
     case 'aws':
       // ─── AWS Transcribe ─────────────────────────────────────────────────
