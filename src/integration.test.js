@@ -1,17 +1,14 @@
 'use strict';
 
 /**
- * Integration Test — Full Consent-Granted Flow
+ * Integration Test — Simplified Proxy Recording Flow
  *
- * Validates the complete path from call initiation through consent
- * to recorded named conversation, ensuring all components work together:
+ * Validates the complete path for the simplified architecture:
  *
- *   1. HCP NCCO is built with correct voice tier + AMD config
- *   2. Patient consent NCCO uses the configured voice tier
- *   3. Consent granted returns conversation action with record + transcription
- *   4. transferCall is invoked with matching conversation name
- *   5. TTS structure is correct for each voice tier
- *   6. Transcription config is correct for each provider
+ *   1. HCP NCCO is built with [record, talk, connect] structure
+ *   2. Patient NCCO always returns []
+ *   3. AMD screener events are handled correctly
+ *   4. Transcription webhook is handled correctly
  */
 
 const express = require('express');
@@ -29,23 +26,17 @@ jest.mock('./config', () => ({
 
 jest.mock('./services/vonage', () => ({
   createCall: jest.fn().mockResolvedValue({ uuid: 'call-uuid-hcp', conversation_uuid: 'CON-hcp-123' }),
-  transferCall: jest.fn().mockResolvedValue({}),
-  startRecording: jest.fn().mockResolvedValue({}),
   generateJwt: jest.fn(() => 'mock-jwt'),
 }));
 
-const { transferCall, startRecording } = require('./services/vonage');
 const {
   storeHcpConversationUuid,
   storeCallOptions,
-  getCallOptions,
-  getHcpCallUuid,
   clear,
 } = require('./services/callState');
 
 // Route modules
 const nccoRouter = require('./routes/ncco');
-const consentRouter = require('./routes/consent');
 const amdRouter = require('./routes/amd');
 const { router: transcriptionsRouter } = require('./routes/transcriptions');
 
@@ -53,13 +44,12 @@ function createApp() {
   const app = express();
   app.use(express.json());
   app.use('/', nccoRouter);
-  app.use('/consent', consentRouter);
   app.use('/events/amd', amdRouter);
   app.use('/transcriptions', transcriptionsRouter);
   return app;
 }
 
-describe('Integration: Full consent-granted flow', () => {
+describe('Integration: Simplified proxy recording flow', () => {
   let app;
 
   beforeEach(() => {
@@ -68,187 +58,23 @@ describe('Integration: Full consent-granted flow', () => {
     jest.clearAllMocks();
   });
 
-  // ─── Coming in a future release (requires NCCO-based recording path) ───
-  // /**
-  //  * Test the full flow with Premier voice + Deepgram transcription + AMD on
-  //  */
-  // test('Premier voice + Deepgram: full consent-granted flow', async () => {
-  //   // ─── Simulate call initiation ───────────────────────────────────────
-  //   storeCallOptions({
-  //     voiceTier: 'premier',
-  //     transcriptionProvider: 'deepgram',
-  //     amdEnabled: true,
-  //   });
-  //   storeHcpConversationUuid('call-uuid-hcp', 'CON-hcp-123');
-  //
-  //   // ─── Step 1: Patient answers → consent NCCO ─────────────────────────
-  //   const nccoRes = await request(app).get('/ncco/patient');
-  //   expect(nccoRes.status).toBe(200);
-  //   expect(nccoRes.body).toHaveLength(2);
-  //
-  //   // Talk action uses Premier (Chirp3 HD)
-  //   const consentTalk = nccoRes.body[0];
-  //   expect(consentTalk.action).toBe('talk');
-  //   expect(consentTalk.provider).toBe('google');
-  //   expect(consentTalk.providerOptions.name).toBe('fr-FR-Chirp3-HD-Aoede');
-  //   expect(consentTalk.providerOptions.language_code).toBe('fr-FR');
-  //   expect(consentTalk.language).toBeUndefined(); // Premier must NOT have language
-  //   expect(consentTalk.bargeIn).toBe(true);
-  //
-  //   // Input action
-  //   expect(nccoRes.body[1].action).toBe('input');
-  //   expect(nccoRes.body[1].eventUrl).toEqual(['https://test.ngrok.io/consent']);
-  //
-  //   // ─── Step 2: Patient presses 1 → consent granted ────────────────────
-  //   const consentRes = await request(app)
-  //     .post('/consent')
-  //     .send({
-  //       dtmf: { digits: '1', timed_out: false },
-  //       conversation_uuid: 'CON-patient-temp',
-  //     });
-  //
-  //   expect(consentRes.status).toBe(200);
-  //   expect(consentRes.body).toHaveLength(1);
-  //
-  //   // Talk confirmation uses Premier
-  //   const confirmTalk = consentRes.body[0];
-  //   expect(confirmTalk.action).toBe('talk');
-  //   expect(confirmTalk.provider).toBe('google');
-  //   expect(confirmTalk.providerOptions.name).toBe('fr-FR-Chirp3-HD-Aoede');
-  //
-  //   // ─── Step 3: startRecording was called with Deepgram transcription ───
-  //   expect(startRecording).toHaveBeenCalledTimes(1);
-  //   const [conversationUuid, eventUrl, transcriptionConfig] = startRecording.mock.calls[0];
-  //   expect(conversationUuid).toBe('CON-hcp-123');
-  //   expect(eventUrl).toBe('https://test.ngrok.io/recordings');
-  //
-  //   // Transcription config uses snake_case (REST API format)
-  //   expect(transcriptionConfig).toBeDefined();
-  //   expect(transcriptionConfig.provider).toBe('deepgram');
-  //   expect(transcriptionConfig.provider_options.model).toBe('nova-2-phonecall');
-  //   expect(transcriptionConfig.provider_options.language).toBe('fr-FR');
-  //   expect(transcriptionConfig.provider_options.diarize).toBe(true);
-  //   expect(transcriptionConfig.event_url).toEqual(['https://test.ngrok.io/transcriptions']);
-  //
-  //   // ─── Step 4: HCP transfer was NOT called (new arch doesn't transfer) ─
-  //   await new Promise(resolve => setImmediate(resolve));
-  // });
-
-  // /**
-  //  * Test with Standard voice + AWS transcription
-  //  */
-  // test('Standard voice + AWS: consent-granted flow', async () => {
-  //   storeCallOptions({
-  //     voiceTier: 'standard',
-  //     transcriptionProvider: 'aws',
-  //     amdEnabled: false,
-  //   });
-  //   storeHcpConversationUuid('call-uuid-hcp-2', 'CON-hcp-456');
-  //
-  //   // Patient consent NCCO uses Standard voice
-  //   const nccoRes = await request(app).get('/ncco/patient');
-  //   expect(nccoRes.body[0].language).toBe('fr-FR');
-  //   expect(nccoRes.body[0].style).toBe(0);
-  //   expect(nccoRes.body[0].provider).toBeUndefined();
-  //
-  //   // Consent granted
-  //   const consentRes = await request(app)
-  //     .post('/consent')
-  //     .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'CON-pat-temp-2' });
-  //
-  //   // Response is just the talk action
-  //   expect(consentRes.body).toHaveLength(1);
-  //   expect(consentRes.body[0].action).toBe('talk');
-  //
-  //   // startRecording was called with AWS transcription config
-  //   expect(startRecording).toHaveBeenCalledTimes(1);
-  //   const [convUuid, eventUrl, txConfig] = startRecording.mock.calls[0];
-  //   expect(convUuid).toBe('CON-hcp-456');
-  //   expect(eventUrl).toBe('https://test.ngrok.io/recordings');
-  //   expect(txConfig.provider).toBe('aws');
-  //   expect(txConfig.provider_options.LanguageCode).toBe('fr-FR');
-  //   expect(txConfig.provider_options.Settings.ChannelIdentification).toBe(true);
-  //
-  //   // No transfer in new architecture
-  //   await new Promise(resolve => setImmediate(resolve));
-  // });
-
   /**
-   * Test with Premium voice + Vonage built-in transcription
+   * Patient NCCO always returns empty array (no consent workflow)
    */
-  test('Premium voice + Vonage transcription: consent-granted flow', async () => {
-    storeCallOptions({
-      voiceTier: 'premium',
-      transcriptionProvider: 'vonage',
-      amdEnabled: true,
-    });
-    storeHcpConversationUuid('call-uuid-hcp-3', 'CON-hcp-789');
+  test('Patient NCCO GET returns empty array', async () => {
+    const res = await request(app).get('/ncco/patient?conversation_uuid=CON-test-123');
 
-    const consentRes = await request(app)
-      .post('/consent')
-      .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'CON-pat-temp-3' });
-
-    // Talk uses Premium (language + style + premium: true)
-    expect(consentRes.body).toHaveLength(1);
-    expect(consentRes.body[0].language).toBe('fr-FR');
-    expect(consentRes.body[0].premium).toBe(true);
-    expect(consentRes.body[0].provider).toBeUndefined();
-
-    // startRecording was called with Vonage transcription config (snake_case)
-    expect(startRecording).toHaveBeenCalledTimes(1);
-    const [, , txConfig] = startRecording.mock.calls[0];
-    expect(txConfig.language).toBe('fr-FR');
-    expect(txConfig.provider).toBeUndefined();
-    expect(txConfig.event_url).toEqual(['https://test.ngrok.io/transcriptions']);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
   });
 
-  /**
-   * Test with no transcription provider
-   */
-  test('No transcription: conversation action has no transcription field', async () => {
-    storeCallOptions({
-      voiceTier: 'standard',
-      transcriptionProvider: 'none',
-      amdEnabled: false,
-    });
-    storeHcpConversationUuid('call-uuid-hcp-4', 'CON-hcp-000');
+  test('Patient NCCO POST returns empty array', async () => {
+    const res = await request(app)
+      .post('/ncco/patient')
+      .send({ conversation_uuid: 'CON-test-456' });
 
-    const consentRes = await request(app)
-      .post('/consent')
-      .send({ dtmf: { digits: '1', timed_out: false }, conversation_uuid: 'CON-pat-temp-4' });
-
-    // Response is just the talk action
-    expect(consentRes.body).toHaveLength(1);
-    expect(consentRes.body[0].action).toBe('talk');
-
-    // startRecording was called with null transcription config
-    expect(startRecording).toHaveBeenCalledTimes(1);
-    const [, , txConfig] = startRecording.mock.calls[0];
-    expect(txConfig).toBeNull();
-  });
-
-  /**
-   * Test consent refused — no conversation, no transfer
-   */
-  test('Consent refused: no conversation action, no transfer', async () => {
-    storeCallOptions({
-      voiceTier: 'premier',
-      transcriptionProvider: 'deepgram',
-      amdEnabled: true,
-    });
-    storeHcpConversationUuid('call-uuid-hcp-5', 'CON-hcp-111');
-
-    const consentRes = await request(app)
-      .post('/consent')
-      .send({ dtmf: { digits: '2', timed_out: false }, conversation_uuid: 'CON-pat-temp-5' });
-
-    expect(consentRes.body).toHaveLength(1);
-    expect(consentRes.body[0].action).toBe('talk');
-    expect(consentRes.body[0].provider).toBe('google'); // Still uses Premier for the message
-    expect(consentRes.body.find(a => a.action === 'conversation')).toBeUndefined();
-
-    await new Promise(resolve => setImmediate(resolve));
-    expect(transferCall).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
   });
 
   /**
@@ -284,5 +110,50 @@ describe('Integration: Full consent-granted flow', () => {
       });
 
     expect(txRes.status).toBe(200);
+  });
+
+  /**
+   * Test buildHcpNcco produces correct structure
+   */
+  test('buildHcpNcco returns [record, talk, connect] with transcription', () => {
+    const { buildHcpNcco } = require('./index');
+
+    storeCallOptions({
+      voiceTier: 'premium',
+      transcriptionProvider: 'vonage',
+      amdEnabled: false,
+    });
+
+    const ncco = buildHcpNcco('+33612345678', 'premium', 'vonage', false);
+
+    expect(ncco).toHaveLength(3);
+    expect(ncco[0].action).toBe('record');
+    expect(ncco[0].split).toBe('conversation');
+    expect(ncco[0].channels).toBe(2);
+    expect(ncco[0].format).toBe('mp3');
+    expect(ncco[0].transcription).toBeDefined();
+    expect(ncco[1].action).toBe('talk');
+    expect(ncco[2].action).toBe('connect');
+    expect(ncco[2].from).toBe('+440000000002');
+  });
+
+  test('buildHcpNcco with no transcription omits transcription field', () => {
+    const { buildHcpNcco } = require('./index');
+
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'none', false);
+
+    expect(ncco).toHaveLength(3);
+    expect(ncco[0].action).toBe('record');
+    expect(ncco[0].transcription).toBeUndefined();
+  });
+
+  test('buildHcpNcco with AMD enabled adds advancedMachineDetection to connect', () => {
+    const { buildHcpNcco } = require('./index');
+
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'none', true);
+
+    expect(ncco[2].advancedMachineDetection).toBeDefined();
+    expect(ncco[2].advancedMachineDetection.callScreener).toBe(true);
+    expect(ncco[2].eventUrl).toEqual(['https://test.ngrok.io/events/amd']);
   });
 });

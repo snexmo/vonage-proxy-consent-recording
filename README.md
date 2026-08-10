@@ -1,22 +1,24 @@
-# Vonage Voice Proxy with Consent Recording
+# Vonage Voice Proxy with Recording
 
-A Node.js/Express reference application demonstrating two-party phone calls between healthcare professionals (HCPs) and patients via the Vonage Voice API. The system handles consent collection, conditional call recording with post-call transcription, and recording downloads — all through a proxy architecture that keeps both parties' real numbers private.
+A Node.js/Express reference application demonstrating two-party phone calls between healthcare professionals (HCPs) and patients via the Vonage Voice API. The system uses unconditional stereo recording via the NCCO `record` action, optional post-call transcription (5 providers), and a two-LVN proxy architecture that keeps both parties' real numbers private.
 
 ## Features
 
-- **Conditional recording via REST API** — Recording starts only after explicit patient consent, using `PUT /v1/conversations/{uuid}/record`
+- **Unconditional recording via NCCO record action** — Recording starts automatically as part of the HCP's inline NCCO. No consent prompt, no DTMF interaction needed.
 - **TTS voice tier selection** — Standard, Premium, or Premier (Google Chirp3 HD) voices
-- **Post-call transcription** — Vonage built-in transcription (Deepgram and AWS planned for future platform release)
-- **Advanced Machine Detection + Call Screener** — Detects answer machine, and *beta feature Handles iOS 18+ Siri call screening with automated pass-through messaging
+- **Post-call transcription** — 5 providers available: None, Vonage, Deepgram Standard, Deepgram Medical, AWS Transcribe
+- **Advanced Machine Detection + Call Screener** — Detects voicemail and handles iOS 18+ Siri call screening (default: OFF)
 
 ### Feature Status
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Premium + Premier TTS (Chirp3 HD) | ✓ Available | Premider Google HD voices |
-| Post-call transcription (Vonage) | ✓ Available | Built-in Vonage transcription engine |
-| Post-call transcription (Deepgram/AWS) | ✗ Pending | Requires platform support on Conversations API record endpoint |
-| AMD + Call Screener | ✓ Available | Can be further enhanced (e.g. new workflow when machine detected, configurable beepTimeout) |
+| Premium + Premier TTS (Chirp3 HD) | Available | Google HD voices |
+| Post-call transcription (Vonage) | Available | Built-in Vonage transcription engine |
+| Post-call transcription (Deepgram Standard) | Available | nova-2-phonecall model |
+| Post-call transcription (Deepgram Medical) | Available | nova-3-medical model |
+| Post-call transcription (AWS Transcribe) | Available | AWS transcription with channel identification |
+| AMD + Call Screener | Available | Default OFF; can be enabled per call |
 
 ## Architecture
 
@@ -26,7 +28,7 @@ A Node.js/Express reference application demonstrating two-party phone calls betw
 │   (CLI)  │       │ (this app)      │       │                  │
 └──────────┘       └─────────────────┘       └──────────────────┘
                           │                         │
-                          │ calls.                  │ calls
+                          │ calls                   │ calls
                           ▼                         ▼
                    ┌─────────────┐          ┌─────────────┐
                    │  HCP Phone  │          │Patient Phone│
@@ -36,26 +38,21 @@ A Node.js/Express reference application demonstrating two-party phone calls betw
 ## Call Flow
 
 1. **Operator starts a call** via CLI — enters phone numbers, selects TTS tier, transcription provider, and AMD toggle
-2. **Leg 1 (HCP)** — Server calls the HCP via `POST /v1/calls` with an inline NCCO (talk + connect)
-3. **HCP answers** — hears a hold message while the patient is dialed
+2. **Leg 1 (HCP)** — Server calls the HCP via `POST /v1/calls` with an inline NCCO: `[record, talk, connect]`
+3. **HCP answers** — recording starts unconditionally (stereo, both legs); HCP hears a hold message while the patient is dialed
 4. **Leg 2 (Patient)** — Vonage dials the patient via the NCCO `connect` action with `onAnswer` (with optional AMD + Call Screener)
 5. **Call Screener** (if enabled) — If Siri/screener answers, the app plays a French pass-through message
-6. **Patient answers** — Vonage fetches `/ncco/patient` for the consent prompt
-7. **Consent prompt** — Patient hears a TTS message and presses 1 (accept) or 2 (refuse)
-8. **If consent granted**:
-   - Server starts recording via REST API: `PUT /v1/conversations/{conv_uuid}/record`
-   - Returns talk-only NCCO to the patient ("Merci...")
-   - Patient's NCCO ends → auto-bridges back into the HCP's connect-based conversation
-   - Both parties are now connected with recording active (stereo, both legs)
-9. **If consent refused** — Patient auto-bridges to HCP with no recording, no API calls
-10. **Call ends** — Recording file is delivered to `/recordings`; transcription result (if configured) to `/transcriptions`
+6. **Patient answers** — Vonage fetches `/ncco/patient` which returns an empty array `[]` — patient is immediately bridged into the conversation
+7. **Both parties connected** — Recording continues for the full conversation duration
+8. **Call ends** — Recording file is delivered to `/recordings`; transcription result (if configured) to `/transcriptions`
 
 ### Key Design Decisions
 
-- **REST API recording**: Uses `PUT /v1/conversations/{uuid}/record` after consent rather than NCCO-based `record` action. This allows recording to start mid-call without transferring legs.
+- **NCCO record action**: Uses the NCCO `record` action (with `split: "conversation"`, `channels: 2`) in the HCP's inline NCCO. Recording starts immediately when the HCP answers — no consent step needed.
+- **No consent workflow**: The patient NCCO returns an empty array, so the patient is bridged immediately with no prompts or DTMF interaction.
+- **All 5 transcription providers**: The NCCO `record` action supports Vonage, Deepgram, and AWS transcription natively.
 - **No named conversation / transfer**: Both legs stay in the original connect-based conversation. No `transferCall` needed.
 - **No SDK dependency**: Uses raw `https.request` calls with JWT auth for full control and transparency.
-- **Fire-and-forget**: The consent response is sent immediately; recording start is `await`-ed but failures don't block the call.
 
 ## Prerequisites
 
@@ -118,20 +115,19 @@ Select TTS voice [1]:
 Post-Call Transcription Provider:
   1) None (default)
   2) Vonage (built-in)
-  3) ✗ Deepgram Standard (nova-2-phonecall) — future platform release
-  4) ✗ Deepgram Medical (nova-3-medical) — future platform release
-  5) ✗ AWS Transcribe — future platform release
+  3) Deepgram Standard (nova-2-phonecall)
+  4) Deepgram Medical (nova-3-medical)
+  5) AWS Transcribe
 Select transcription provider [1]:
 
-Enable AMD + Call Screener? [Y/n]:
+Enable AMD + Call Screener? [y/N]:
 ```
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET/POST | `/ncco/patient` | Returns consent NCCO when patient answers |
-| POST | `/consent` | Handles patient DTMF response, starts recording if consented |
+| GET/POST | `/ncco/patient` | Returns empty NCCO `[]` for immediate bridge |
 | POST | `/recordings` | Receives recording metadata, triggers download |
 | POST | `/transcriptions` | Receives transcription completion webhooks |
 | POST | `/events` | General call status events |
@@ -154,17 +150,16 @@ Runs the full Jest test suite including property-based tests (fast-check).
 │   ├── index.js              # Express app, CLI prompts, call initiation, HCP NCCO builder
 │   ├── config.js             # Environment variable loading
 │   ├── routes/
-│   │   ├── ncco.js           # Patient consent NCCO webhook
-│   │   ├── consent.js        # DTMF handler → starts recording via REST API
+│   │   ├── ncco.js           # Patient NCCO webhook (returns [])
 │   │   ├── recordings.js     # Recording download handler
 │   │   ├── transcriptions.js # Transcription webhook handler
 │   │   ├── events.js         # Call status event logging
 │   │   └── amd.js            # AMD + Call Screener event handler
 │   └── services/
-│       ├── vonage.js         # Vonage API client (createCall, startRecording)
+│       ├── vonage.js         # Vonage API client (createCall, generateJwt)
 │       ├── callState.js      # In-memory call state + per-call options
 │       ├── tts.js            # TTS helper (Standard/Premium/Premier)
-│       ├── transcription.js  # Transcription config builder
+│       ├── transcription.js  # Transcription config builder (NCCO format)
 │       └── amd.js            # AMD config builder
 ├── public/
 │   └── audio/                # Static audio files (hold music)

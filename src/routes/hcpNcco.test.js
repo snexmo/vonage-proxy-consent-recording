@@ -46,30 +46,80 @@ afterAll((done) => {
 });
 
 describe('buildHcpNcco', () => {
-  test('returns array with talk + connect actions', () => {
-    const ncco = buildHcpNcco('+33612345678', 'standard', false);
-    expect(ncco).toHaveLength(2);
-    expect(ncco[0].action).toBe('talk');
-    expect(ncco[1].action).toBe('connect');
+  test('returns array with record + talk + connect actions', () => {
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'none', false);
+    expect(ncco).toHaveLength(3);
+    expect(ncco[0].action).toBe('record');
+    expect(ncco[1].action).toBe('talk');
+    expect(ncco[2].action).toBe('connect');
+  });
+
+  test('record action has correct fields', () => {
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'none', false);
+    const record = ncco[0];
+    expect(record.action).toBe('record');
+    expect(record.split).toBe('conversation');
+    expect(record.channels).toBe(2);
+    expect(record.format).toBe('mp3');
+    expect(record.eventUrl).toEqual(['https://example.ngrok.io/recordings']);
+    expect(record.eventMethod).toBe('POST');
+  });
+
+  test('record action does NOT include transcription when provider is none', () => {
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'none', false);
+    expect(ncco[0].transcription).toBeUndefined();
+  });
+
+  test('record action includes transcription when provider is vonage', () => {
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'vonage', false);
+    const record = ncco[0];
+    expect(record.transcription).toBeDefined();
+    expect(record.transcription.language).toBe('fr-FR');
+    expect(record.transcription.eventUrl).toEqual(['https://example.ngrok.io/transcriptions']);
+    expect(record.transcription.eventMethod).toBe('POST');
+  });
+
+  test('record action includes transcription when provider is deepgram', () => {
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'deepgram', false);
+    const record = ncco[0];
+    expect(record.transcription).toBeDefined();
+    expect(record.transcription.provider).toBe('deepgram');
+    expect(record.transcription.providerOptions.model).toBe('nova-2-phonecall');
+  });
+
+  test('record action includes transcription when provider is deepgram-medical', () => {
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'deepgram-medical', false);
+    const record = ncco[0];
+    expect(record.transcription).toBeDefined();
+    expect(record.transcription.provider).toBe('deepgram');
+    expect(record.transcription.providerOptions.model).toBe('nova-3-medical');
+  });
+
+  test('record action includes transcription when provider is aws', () => {
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'aws', false);
+    const record = ncco[0];
+    expect(record.transcription).toBeDefined();
+    expect(record.transcription.provider).toBe('aws');
+    expect(record.transcription.providerOptions.LanguageCode).toBe('fr-FR');
   });
 
   test('talk action uses selected voice tier (standard)', () => {
-    const ncco = buildHcpNcco('+33612345678', 'standard', false);
-    expect(ncco[0].language).toBe('fr-FR');
-    expect(ncco[0].style).toBe(0);
-    expect(ncco[0].provider).toBeUndefined();
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'none', false);
+    expect(ncco[1].language).toBe('fr-FR');
+    expect(ncco[1].style).toBe(0);
+    expect(ncco[1].provider).toBeUndefined();
   });
 
   test('talk action uses Premier voice tier', () => {
-    const ncco = buildHcpNcco('+33612345678', 'premier', false);
-    expect(ncco[0].provider).toBe('google');
-    expect(ncco[0].providerOptions.name).toBe('fr-FR-Chirp3-HD-Aoede');
-    expect(ncco[0].language).toBeUndefined();
+    const ncco = buildHcpNcco('+33612345678', 'premier', 'none', false);
+    expect(ncco[1].provider).toBe('google');
+    expect(ncco[1].providerOptions.name).toBe('fr-FR-Chirp3-HD-Aoede');
+    expect(ncco[1].language).toBeUndefined();
   });
 
   test('connect action dials patient number with onAnswer', () => {
-    const ncco = buildHcpNcco('+33612345678', 'standard', false);
-    const connect = ncco[1];
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'none', false);
+    const connect = ncco[2];
     expect(connect.endpoint[0].type).toBe('phone');
     expect(connect.endpoint[0].number).toBe('+33612345678');
     expect(connect.endpoint[0].onAnswer.url).toBe('https://example.ngrok.io/ncco/patient');
@@ -77,32 +127,26 @@ describe('buildHcpNcco', () => {
   });
 
   test('connect action uses LVN_B as from', () => {
-    const ncco = buildHcpNcco('+33612345678', 'standard', false);
-    expect(ncco[1].from).toBe('+440000000002');
+    const ncco = buildHcpNcco('+33612345678', 'standard', 'none', false);
+    expect(ncco[2].from).toBe('+440000000002');
   });
 
   describe('AMD disabled', () => {
     test('connect does NOT include advancedMachineDetection', () => {
-      const ncco = buildHcpNcco('+33612345678', 'standard', false);
-      expect(ncco[1].advancedMachineDetection).toBeUndefined();
+      const ncco = buildHcpNcco('+33612345678', 'standard', 'none', false);
+      expect(ncco[2].advancedMachineDetection).toBeUndefined();
     });
 
     test('connect eventUrl points to /events/connect', () => {
-      const ncco = buildHcpNcco('+33612345678', 'standard', false);
-      expect(ncco[1].eventUrl).toEqual(['https://example.ngrok.io/events/connect']);
+      const ncco = buildHcpNcco('+33612345678', 'standard', 'none', false);
+      expect(ncco[2].eventUrl).toEqual(['https://example.ngrok.io/events/connect']);
     });
-  });
-
-  test('does not include a record action', () => {
-    const ncco = buildHcpNcco('+33612345678', 'standard', false);
-    const recordActions = ncco.filter(a => a.action === 'record');
-    expect(recordActions).toHaveLength(0);
   });
 
   describe('AMD enabled', () => {
     test('connect includes advancedMachineDetection with callScreener', () => {
-      const ncco = buildHcpNcco('+33612345678', 'standard', true);
-      const amd = ncco[1].advancedMachineDetection;
+      const ncco = buildHcpNcco('+33612345678', 'standard', 'none', true);
+      const amd = ncco[2].advancedMachineDetection;
       expect(amd).toBeDefined();
       expect(amd.behavior).toBe('continue');
       expect(amd.mode).toBe('default');
@@ -111,8 +155,8 @@ describe('buildHcpNcco', () => {
     });
 
     test('connect eventUrl points to /events/amd', () => {
-      const ncco = buildHcpNcco('+33612345678', 'standard', true);
-      expect(ncco[1].eventUrl).toEqual(['https://example.ngrok.io/events/amd']);
+      const ncco = buildHcpNcco('+33612345678', 'standard', 'none', true);
+      expect(ncco[2].eventUrl).toEqual(['https://example.ngrok.io/events/amd']);
     });
   });
 });

@@ -290,3 +290,157 @@ describe('buildTranscriptionConfigRest', () => {
   //   });
   // });
 });
+
+
+describe('buildTranscriptionConfigNcco', () => {
+  const { buildTranscriptionConfigNcco } = require('./transcription');
+  const TEST_URL = 'https://example.ngrok.io/transcriptions';
+
+  describe('"vonage" provider', () => {
+    test('returns correct structure with language and camelCase keys', () => {
+      const result = buildTranscriptionConfigNcco('vonage', TEST_URL, 'fr-FR');
+      expect(result).toEqual({
+        language: 'fr-FR',
+        eventUrl: [TEST_URL],
+        eventMethod: 'POST',
+      });
+    });
+
+    test('does not include provider or providerOptions', () => {
+      const result = buildTranscriptionConfigNcco('vonage', TEST_URL);
+      expect(result.provider).toBeUndefined();
+      expect(result.providerOptions).toBeUndefined();
+    });
+
+    test('defaults language to fr-FR', () => {
+      const result = buildTranscriptionConfigNcco('vonage', TEST_URL);
+      expect(result.language).toBe('fr-FR');
+    });
+  });
+
+  describe('"deepgram" provider', () => {
+    test('returns correct structure with provider and providerOptions', () => {
+      const result = buildTranscriptionConfigNcco('deepgram', TEST_URL, 'fr-FR');
+      expect(result).toEqual({
+        eventUrl: [TEST_URL],
+        eventMethod: 'POST',
+        provider: 'deepgram',
+        providerOptions: {
+          model: 'nova-2-phonecall',
+          language: 'fr-FR',
+          diarize: true,
+          punctuate: true,
+          smart_format: true,
+        },
+      });
+    });
+
+    test('does NOT include top-level language', () => {
+      const result = buildTranscriptionConfigNcco('deepgram', TEST_URL);
+      expect(result.language).toBeUndefined();
+    });
+
+    test('passes language into providerOptions', () => {
+      const result = buildTranscriptionConfigNcco('deepgram', TEST_URL, 'en-US');
+      expect(result.providerOptions.language).toBe('en-US');
+    });
+  });
+
+  describe('"deepgram-medical" provider', () => {
+    test('returns provider "deepgram" with model "nova-3-medical"', () => {
+      const result = buildTranscriptionConfigNcco('deepgram-medical', TEST_URL, 'fr-FR');
+      expect(result).toEqual({
+        eventUrl: [TEST_URL],
+        eventMethod: 'POST',
+        provider: 'deepgram',
+        providerOptions: {
+          model: 'nova-3-medical',
+          language: 'fr-FR',
+          diarize: true,
+          punctuate: true,
+          smart_format: true,
+        },
+      });
+    });
+
+    test('uses same camelCase keys as deepgram', () => {
+      const result = buildTranscriptionConfigNcco('deepgram-medical', TEST_URL);
+      expect(result.eventUrl).toBeDefined();
+      expect(result.eventMethod).toBe('POST');
+      expect(result.providerOptions).toBeDefined();
+    });
+  });
+
+  describe('"aws" provider', () => {
+    test('returns correct structure with provider and providerOptions', () => {
+      const result = buildTranscriptionConfigNcco('aws', TEST_URL, 'fr-FR');
+      expect(result).toEqual({
+        eventUrl: [TEST_URL],
+        eventMethod: 'POST',
+        provider: 'aws',
+        providerOptions: {
+          LanguageCode: 'fr-FR',
+          Settings: {
+            ChannelIdentification: true,
+          },
+        },
+      });
+    });
+
+    test('does NOT include top-level language', () => {
+      const result = buildTranscriptionConfigNcco('aws', TEST_URL);
+      expect(result.language).toBeUndefined();
+    });
+
+    test('passes language into providerOptions.LanguageCode', () => {
+      const result = buildTranscriptionConfigNcco('aws', TEST_URL, 'en-US');
+      expect(result.providerOptions.LanguageCode).toBe('en-US');
+    });
+  });
+
+  describe('"none" provider', () => {
+    test('returns null', () => {
+      const result = buildTranscriptionConfigNcco('none', TEST_URL);
+      expect(result).toBeNull();
+    });
+
+    test('returns null for undefined provider', () => {
+      const result = buildTranscriptionConfigNcco(undefined, TEST_URL);
+      expect(result).toBeNull();
+    });
+
+    test('returns null for null provider', () => {
+      const result = buildTranscriptionConfigNcco(null, TEST_URL);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('Edge cases', () => {
+    test('is case-insensitive', () => {
+      expect(buildTranscriptionConfigNcco('DEEPGRAM', TEST_URL).provider).toBe('deepgram');
+      expect(buildTranscriptionConfigNcco('AWS', TEST_URL).provider).toBe('aws');
+      expect(buildTranscriptionConfigNcco('Vonage', TEST_URL).language).toBe('fr-FR');
+    });
+
+    test('throws on unknown provider', () => {
+      expect(() => buildTranscriptionConfigNcco('whisper', TEST_URL))
+        .toThrow('Unknown transcription provider: "whisper"');
+    });
+
+    test('eventUrl is always wrapped in an array for all providers', () => {
+      for (const p of ['vonage', 'deepgram', 'deepgram-medical', 'aws']) {
+        const result = buildTranscriptionConfigNcco(p, TEST_URL);
+        expect(result.eventUrl).toEqual([TEST_URL]);
+      }
+    });
+
+    test('uses camelCase keys (not snake_case) for all providers', () => {
+      for (const p of ['vonage', 'deepgram', 'deepgram-medical', 'aws']) {
+        const result = buildTranscriptionConfigNcco(p, TEST_URL);
+        expect(result.event_url).toBeUndefined();
+        expect(result.event_method).toBeUndefined();
+        expect(result.provider_options).toBeUndefined();
+      }
+    });
+  });
+});

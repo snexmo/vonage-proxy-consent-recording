@@ -201,4 +201,106 @@ function buildTranscriptionConfigRest(provider, eventUrl, language = 'fr-FR') {
   }
 }
 
-module.exports = { buildTranscriptionConfig, buildTranscriptionConfigRest };
+/**
+ * Build the transcription configuration object for the NCCO `record` action.
+ * Uses camelCase field names (`eventUrl`, `eventMethod`, `providerOptions`)
+ * as required by the NCCO record action's `transcription` field.
+ *
+ * All 5 providers are supported because the NCCO `record` action supports
+ * third-party transcription providers (unlike the REST endpoint).
+ *
+ * @param {string} provider - One of: "vonage", "deepgram", "deepgram-medical", "aws", "none"
+ * @param {string} eventUrl - Webhook URL to receive transcription completion events.
+ * @param {string} [language="fr-FR"] - BCP-47 language code for the transcription.
+ * @returns {object|null} A transcription config object with camelCase keys, or null if provider is "none".
+ *
+ * @example
+ * // Vonage built-in (NCCO)
+ * buildTranscriptionConfigNcco('vonage', 'https://example.com/tx', 'fr-FR')
+ * // => { language: 'fr-FR', eventUrl: ['https://...'], eventMethod: 'POST' }
+ *
+ * @example
+ * // Deepgram (NCCO)
+ * buildTranscriptionConfigNcco('deepgram', 'https://example.com/tx', 'fr-FR')
+ * // => { eventUrl: ['https://...'], eventMethod: 'POST',
+ * //      provider: 'deepgram', providerOptions: { model: 'nova-2-phonecall', ... } }
+ *
+ * @example
+ * // Deepgram Medical (NCCO)
+ * buildTranscriptionConfigNcco('deepgram-medical', 'https://example.com/tx', 'fr-FR')
+ * // => { eventUrl: ['https://...'], eventMethod: 'POST',
+ * //      provider: 'deepgram', providerOptions: { model: 'nova-3-medical', ... } }
+ *
+ * @example
+ * // AWS Transcribe (NCCO)
+ * buildTranscriptionConfigNcco('aws', 'https://example.com/tx', 'fr-FR')
+ * // => { eventUrl: ['https://...'], eventMethod: 'POST',
+ * //      provider: 'aws', providerOptions: { LanguageCode: 'fr-FR', Settings: { ... } } }
+ */
+function buildTranscriptionConfigNcco(provider, eventUrl, language = 'fr-FR') {
+  const normalizedProvider = (provider || 'none').toLowerCase();
+
+  switch (normalizedProvider) {
+    case 'vonage':
+      // ─── Vonage Built-in Transcription ───────────────────────────────────
+      return {
+        language,
+        eventUrl: [eventUrl],
+        eventMethod: 'POST',
+      };
+
+    case 'deepgram':
+      // ─── Deepgram Standard (Nova 2 Phonecall) ───────────────────────────
+      return {
+        eventUrl: [eventUrl],
+        eventMethod: 'POST',
+        provider: 'deepgram',
+        providerOptions: {
+          model: 'nova-2-phonecall',
+          language,
+          diarize: true,
+          punctuate: true,
+          smart_format: true,
+        },
+      };
+
+    case 'deepgram-medical':
+      // ─── Deepgram Medical (Nova 3 Medical) ──────────────────────────────
+      return {
+        eventUrl: [eventUrl],
+        eventMethod: 'POST',
+        provider: 'deepgram',
+        providerOptions: {
+          model: 'nova-3-medical',
+          language,
+          diarize: true,
+          punctuate: true,
+          smart_format: true,
+        },
+      };
+
+    case 'aws':
+      // ─── AWS Transcribe ─────────────────────────────────────────────────
+      return {
+        eventUrl: [eventUrl],
+        eventMethod: 'POST',
+        provider: 'aws',
+        providerOptions: {
+          LanguageCode: language,
+          Settings: {
+            ChannelIdentification: true,
+          },
+        },
+      };
+
+    case 'none':
+      return null;
+
+    default:
+      throw new Error(
+        `Unknown transcription provider: "${provider}". Must be one of: vonage, deepgram, deepgram-medical, aws, none`
+      );
+  }
+}
+
+module.exports = { buildTranscriptionConfig, buildTranscriptionConfigRest, buildTranscriptionConfigNcco };

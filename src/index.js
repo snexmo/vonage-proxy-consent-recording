@@ -8,10 +8,10 @@ const { createCall } = require('./services/vonage');
 const { storeHcpConversationUuid, storeCallOptions } = require('./services/callState');
 const { buildTalkAction } = require('./services/tts');
 const { buildAmdConfig } = require('./services/amd');
+const { buildTranscriptionConfigNcco } = require('./services/transcription');
 
 // Route modules
 const nccoRouter = require('./routes/ncco');
-const consentRouter = require('./routes/consent');
 const { router: recordingsRouter } = require('./routes/recordings');
 const { router: transcriptionsRouter } = require('./routes/transcriptions');
 const eventsRouter = require('./routes/events');
@@ -27,7 +27,6 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Mount routes
 app.use('/', nccoRouter);             // defines /ncco/patient
-app.use('/consent', consentRouter);    // POST /consent
 app.use('/recordings', recordingsRouter); // POST /recordings
 app.use('/transcriptions', transcriptionsRouter); // POST /transcriptions
 app.use('/events', eventsRouter);      // POST /events, /events/connect
@@ -39,7 +38,6 @@ const server = app.listen(config.PORT, () => {
   console.log(`[SERVER] BASE_URL: ${config.BASE_URL}`);
   console.log('[SERVER] Registered endpoints:');
   console.log('  GET/POST /ncco/patient');
-  console.log('  POST     /consent');
   console.log('  POST     /recordings');
   console.log('  POST     /transcriptions');
   console.log('  POST     /events');
@@ -144,18 +142,17 @@ function promptForCall() {
         console.log('\nPost-Call Transcription Provider:');
         console.log('  1) None (default)');
         console.log('  2) Vonage (built-in)');
-        console.log('  3) ✗ Deepgram Standard (nova-2-phonecall) — future platform release');
-        console.log('  4) ✗ Deepgram Medical (nova-3-medical) — future platform release');
-        console.log('  5) ✗ AWS Transcribe — future platform release');
+        console.log('  3) Deepgram Standard (nova-2-phonecall)');
+        console.log('  4) Deepgram Medical (nova-3-medical)');
+        console.log('  5) AWS Transcribe');
         rl.question('Select transcription provider [1]: ', (txInput) => {
           txInput = txInput.trim();
           let transcriptionProvider;
           switch (txInput) {
             case '2': transcriptionProvider = 'vonage'; break;
-            // ─── Coming in a future release (requires NCCO-based recording path) ───
-            // case '3': transcriptionProvider = 'deepgram'; break;
-            // case '4': transcriptionProvider = 'deepgram-medical'; break;
-            // case '5': transcriptionProvider = 'aws'; break;
+            case '3': transcriptionProvider = 'deepgram'; break;
+            case '4': transcriptionProvider = 'deepgram-medical'; break;
+            case '5': transcriptionProvider = 'aws'; break;
             default: transcriptionProvider = 'none'; break;
           }
 
@@ -163,19 +160,19 @@ function promptForCall() {
           // ┌─────────────────────────────────────────────────────────────────┐
           // │ ALPHA: Call Screener Navigator (APIDOC-2304)                    │
           // │ Handles iOS 18+ Siri call screening on the patient's phone.    │
-          // │ Default: ON                                                     │
+          // │ Default: OFF                                                    │
           // └─────────────────────────────────────────────────────────────────┘
-          rl.question('\nEnable AMD + Call Screener? [Y/n]: ', async (amdInput) => {
+          rl.question('\nEnable AMD + Call Screener? [y/N]: ', async (amdInput) => {
             amdInput = amdInput.trim().toLowerCase();
-            const amdEnabled = amdInput !== 'n' && amdInput !== 'no';
+            const amdEnabled = amdInput === 'y' || amdInput === 'yes';
 
             rl.close();
 
-            // Store per-call options for use by consent handler and NCCO routes
+            // Store per-call options for use by NCCO routes
             storeCallOptions({ voiceTier, transcriptionProvider, amdEnabled });
 
             // Build the inline NCCO for the HCP leg
-            const ncco = buildHcpNcco(patientNumber, voiceTier, amdEnabled);
+            const ncco = buildHcpNcco(patientNumber, voiceTier, transcriptionProvider, amdEnabled);
 
             // Log configuration
             console.log(`\n[CALL] Initiating proxy call...`);
@@ -208,19 +205,43 @@ function promptForCall() {
  * Build the inline NCCO for the HCP leg.
  *
  * Structure:
- *   [talk (hold message), connect (to patient)]
+ *   [record, talk (hold message), connect (to patient)]
  *
+ * The record action starts stereo recording unconditionally.
  * The connect action includes:
- *   - onAnswer: serves the consent NCCO to the patient
- *   - ringbackTone: hold music for the HCP while patient goes through consent
+ *   - onAnswer: serves the patient NCCO (empty array for immediate bridge)
+ *   - ringbackTone: hold music for the HCP while patient phone rings
  *   - advancedMachineDetection: (optional) AMD + Call Screener config
  *
  * @param {string} patientNumber - Patient phone number (E.164)
  * @param {string} voiceTier - TTS voice tier for the hold message
+ * @param {string} transcriptionProvider - "none" | "vonage" | "deepgram" | "deepgram-medical" | "aws"
  * @param {boolean} amdEnabled - Whether AMD + Call Screener is enabled
- * @returns {Array} NCCO actions array
+ * @returns {Array} NCCO actions array: [record, talk, connect]
  */
-function buildHcpNcco(patientNumber, voiceTier, amdEnabled) {
+function buildHcpNcco(patientNumber, voiceTier, transcriptionProvider, amdEnabled) {
+  // Build the record action (unconditional stereo recording)
+  const recordAction = {
+    action: 'record',
+    split: 'conversation',
+    channels: 2,
+    format: 'mp3',
+    eventUrl: [`${config.BASE_URL}/recordings`],
+    eventMethod: 'POST',
+  };
+
+  // Add transcription config when a provider is selected
+  if (transcriptionProvider !== 'none') {
+    const transcription = buildTranscriptionConfigNcco(
+      transcriptionProvider,
+      `${config.BASE_URL}/transcriptions`,
+      config.TRANSCRIPTION_LANGUAGE
+    );
+    if (transcription) {
+      recordAction.transcription = transcription;
+    }
+  }
+
   // HCP hears a brief hold message using the selected voice tier
   const talkAction = buildTalkAction(
     'Veuillez patienter pendant que nous mettons le patient en ligne.',
@@ -272,7 +293,7 @@ function buildHcpNcco(patientNumber, voiceTier, amdEnabled) {
     connectAction.eventUrl = [`${config.BASE_URL}/events/amd`];
   }
 
-  return [talkAction, connectAction];
+  return [recordAction, talkAction, connectAction];
 }
 
 module.exports = { app, server, isValidE164, normalizeE164, buildHcpNcco };
