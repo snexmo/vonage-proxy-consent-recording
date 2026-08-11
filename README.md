@@ -15,7 +15,9 @@ A Node.js/Express reference application demonstrating two-party phone calls betw
 |---------|--------|-------|
 | Premium + Premier TTS (Chirp3 HD) | ✓ Available | Premider Google HD voices |
 | Post-call transcription (Vonage) | ✓ Available | Built-in Vonage transcription engine |
-| Post-call transcription (Deepgram/AWS) | ✗ Pending | Requires platform support on Conversations API record endpoint |
+| Post-call transcription (Deepgram Standard) | Alpha | nova-3 model; 3rd Party transcription provided by Deepgram |
+| Post-call transcription (Deepgram Medical) | ✗ Experimental | nova-3 model; requires platform support on Conversations API record endpoint |
+| Post-call transcription (AWS) | ✗ Pending | Requires platform support on Conversations API record endpoint |
 | AMD + Call Screener | ✓ Available | Can be further enhanced (e.g. new workflow when machine detected, configurable beepTimeout) |
 
 ## Architecture
@@ -25,12 +27,12 @@ A Node.js/Express reference application demonstrating two-party phone calls betw
 │ Operator │──────▶│ Express Server  │◀─────▶│ Vonage Voice API │
 │   (CLI)  │       │ (this app)      │       │                  │
 └──────────┘       └─────────────────┘       └──────────────────┘
-                          │                         │
-                          │ calls.                  │ calls
-                          ▼                         ▼
-                   ┌─────────────┐          ┌─────────────┐
-                   │  HCP Phone  │          │Patient Phone│
-                   └─────────────┘          └─────────────┘
+                                                 │            │
+                                                 │ calls.     │ calls
+                                                 ▼            ▼
+                                    ┌─────────────┐          ┌─────────────┐
+                                    │  HCP Phone  │          │Patient Phone│
+                                    └─────────────┘          └─────────────┘
 ```
 
 ## Call Flow
@@ -49,6 +51,7 @@ A Node.js/Express reference application demonstrating two-party phone calls betw
    - Both parties are now connected with recording active (stereo, both legs)
 9. **If consent refused** — Patient auto-bridges to HCP with no recording, no API calls
 10. **Call ends** — Recording file is delivered to `/recordings`; transcription result (if configured) to `/transcriptions`
+11. **Media cleanup** — After each successful download (recording or transcription), the media is deleted from Vonage's servers via `DELETE /v3/media/{media_id}`
 
 ### Key Design Decisions
 
@@ -62,7 +65,7 @@ A Node.js/Express reference application demonstrating two-party phone calls betw
 - Node.js 18+
 - A [Vonage](https://developer.vonage.com) account with:
   - A Voice-enabled application (with public/private key pair)
-  - Two virtual numbers (LVNs) — one for each call leg
+  - One or Two virtual numbers (LVNs) — one for each call leg
 - A publicly accessible URL (e.g., [ngrok](https://ngrok.com)) for webhooks
 
 ## Setup
@@ -118,8 +121,8 @@ Select TTS voice [1]:
 Post-Call Transcription Provider:
   1) None (default)
   2) Vonage (built-in)
-  3) ✗ Deepgram Standard (nova-2-phonecall) — future platform release
-  4) ✗ Deepgram Medical (nova-3-medical) — future platform release
+  3) Deepgram Standard (nova-3) — alpha release
+  4) ✗ Deepgram Medical (nova-3) — experimental
   5) ✗ AWS Transcribe — future platform release
 Select transcription provider [1]:
 
@@ -161,7 +164,7 @@ Runs the full Jest test suite including property-based tests (fast-check).
 │   │   ├── events.js         # Call status event logging
 │   │   └── amd.js            # AMD + Call Screener event handler
 │   └── services/
-│       ├── vonage.js         # Vonage API client (createCall, startRecording)
+│       ├── vonage.js         # Vonage API client (createCall, startRecording, deleteMedia)
 │       ├── callState.js      # In-memory call state + per-call options
 │       ├── tts.js            # TTS helper (Standard/Premium/Premier)
 │       ├── transcription.js  # Transcription config builder
