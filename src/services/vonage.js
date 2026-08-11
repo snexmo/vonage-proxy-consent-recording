@@ -46,7 +46,7 @@ function createCall(ncco, to, from, eventUrl) {
     const https = require('https');
 
     const options = {
-      hostname: 'api.nexmo.com',
+      hostname: 'api-eu.nexmo.com',
       path: '/v1/calls',
       method: 'POST',
       headers: {
@@ -156,4 +156,54 @@ function startRecording(conversationUuid, eventUrl, transcriptionConfig = null) 
   });
 }
 
-module.exports = { generateJwt, createCall, startRecording };
+/**
+ * Delete a media item from the Vonage Media API.
+ *
+ * Extracts the media ID from a file URL (last path segment) and issues
+ * DELETE https://api.nexmo.com/v1/media/{media_id}.
+ *
+ * Logs a warning on failure but does not throw — this is best-effort cleanup.
+ *
+ * @param {string} fileUrl - The Vonage file URL (e.g. https://api.nexmo.com/v1/files/{uuid}).
+ * @returns {Promise<void>}
+ */
+async function deleteMedia(fileUrl) {
+  const https = require('https');
+  const token = generateJwt();
+
+  const url = new URL(fileUrl);
+  const mediaId = url.pathname.split('/').pop();
+
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'api.nexmo.com',
+      path: `/v3/media/${mediaId}`,
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          console.log(`[MEDIA] Deleted media ${mediaId} from server`);
+        } else {
+          console.warn(`[MEDIA] Failed to delete media ${mediaId}: HTTP ${res.statusCode} ${data}`);
+        }
+        resolve();
+      });
+    });
+
+    req.on('error', (err) => {
+      console.warn(`[MEDIA] Failed to delete media ${mediaId}: ${err.message}`);
+      resolve();
+    });
+
+    req.end();
+  });
+}
+
+module.exports = { generateJwt, createCall, startRecording, deleteMedia };

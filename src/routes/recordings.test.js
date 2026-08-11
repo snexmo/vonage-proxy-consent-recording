@@ -6,6 +6,7 @@ const path = require('path');
 // Mock the vonage service
 jest.mock('../services/vonage', () => ({
   generateJwt: jest.fn(() => 'mock-jwt-token'),
+  deleteMedia: jest.fn(() => Promise.resolve()),
 }));
 
 // Mock https module to avoid real network calls
@@ -14,6 +15,7 @@ jest.mock('https', () => {
   return {
     request: jest.fn((options, callback) => {
       const response = new PassThrough();
+      response.statusCode = 200;
       // Simulate a response with some data
       process.nextTick(() => {
         callback(response);
@@ -122,5 +124,18 @@ describe('POST /recordings', () => {
       }),
       expect.any(Function)
     );
+  });
+
+  test('calls deleteMedia with recording_url after successful download', async () => {
+    const { deleteMedia } = require('../services/vonage');
+
+    await request(app)
+      .post('/recordings')
+      .send(validPayload);
+
+    // Allow async download and delete to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(deleteMedia).toHaveBeenCalledWith(validPayload.recording_url);
   });
 });

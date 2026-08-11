@@ -3,7 +3,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { generateJwt } = require('../services/vonage');
+const { generateJwt, deleteMedia } = require('../services/vonage');
 
 const router = express.Router();
 
@@ -128,7 +128,10 @@ async function downloadTranscription(transcriptionUrl, conversationUuid, provide
             return;
           }
           console.log(`[TRANSCRIPTION] Saved to: ${filePath}`);
-          resolve(filePath);
+          // Delete media from Vonage server after successful download
+          deleteMedia(transcriptionUrl).then(() => {
+            resolve(filePath);
+          });
         });
       });
     });

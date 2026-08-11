@@ -1,7 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { generateJwt } = require('../services/vonage');
+const { generateJwt, deleteMedia } = require('../services/vonage');
 
 const router = express.Router();
 
@@ -72,7 +72,10 @@ async function downloadRecording(recordingUrl, conversationUuid) {
       fileStream.on('finish', () => {
         fileStream.close();
         console.log(`[RECORDING] Saved to: ${filePath}`);
-        resolve(filePath);
+        // Delete media from Vonage server after successful download
+        deleteMedia(recordingUrl).then(() => {
+          resolve(filePath);
+        });
       });
 
       fileStream.on('error', (err) => {

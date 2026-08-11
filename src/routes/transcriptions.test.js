@@ -3,6 +3,30 @@
 const express = require('express');
 const request = require('supertest');
 
+// Mock the vonage service
+jest.mock('../services/vonage', () => ({
+  generateJwt: jest.fn(() => 'mock-jwt-token'),
+  deleteMedia: jest.fn(() => Promise.resolve()),
+}));
+
+// Mock https module to avoid real network calls
+jest.mock('https', () => {
+  const { PassThrough } = require('stream');
+  return {
+    request: jest.fn((options, callback) => {
+      const response = new PassThrough();
+      response.statusCode = 200;
+      process.nextTick(() => {
+        callback(response);
+        response.end(JSON.stringify({ transcript: 'mock data' }));
+      });
+      const req = new PassThrough();
+      req.end = jest.fn();
+      return req;
+    }),
+  };
+});
+
 const { router: transcriptionsRouter } = require('./transcriptions');
 
 function createApp() {
@@ -124,5 +148,26 @@ describe('POST /transcriptions', () => {
     expect(allLogs).toContain('processing');
 
     logSpy.mockRestore();
+  });
+
+  test('calls deleteMedia with transcription_url after successful download', async () => {
+    const { deleteMedia } = require('../services/vonage');
+    jest.spyOn(console, 'log').mockImplementation();
+
+    await request(app)
+      .post('/transcriptions')
+      .send({
+        conversation_uuid: 'CON-abc123',
+        recording_uuid: 'rec-uuid-456',
+        status: 'transcribed',
+        transcription_url: 'https://api.nexmo.com/v1/files/tx-file-789',
+        provider: 'aws',
+        type: 'record',
+      });
+
+    // Allow async download and delete to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(deleteMedia).toHaveBeenCalledWith('https://api.nexmo.com/v1/files/tx-file-789');
   });
 });
